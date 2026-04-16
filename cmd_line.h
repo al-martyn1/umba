@@ -1293,9 +1293,6 @@ struct CommandLineOption
         "-?\n"
         "--help\n"
         "    Show this help.\n"
-        #if defined(RTC_PRIVATE_BUILD)
-        "    See also RTC RFC010 for details (http://wiki.dep111.rtc.local/rfcrtc:rfcrtc010).\n"
-        #endif
         ;
 
     }
@@ -3385,11 +3382,15 @@ struct CommandInfo
 
 
     std::string                          commandName;
-    CommandHandlerType                   commandHandler;  // по умолчанию в корневом элементе нет никакого обработчика, и пустая команда недопустима
-    ParameterTransformHandlerType        parameterTransformHandler;
+    std::string                          usageInfo;
+    std::string                          brief;
+    std::string                          description;
     std::map<std::string, CommandInfo>   subCommands;
     std::unordered_set<std::string>      allowedOptions;
-    std::string                          helpString;
+
+    CommandHandlerType                   commandHandler;  // по умолчанию в корневом элементе нет никакого обработчика, и пустая команда недопустима
+    ParameterTransformHandlerType        parameterTransformHandler;
+    // std::string                          helpString;
     std::size_t                          maxInputParams = std::size_t(-1);
     bool                                 rawMode = false;
 
@@ -3592,10 +3593,6 @@ struct CommandInfo
     }
 
     //--------------------------------------------------
-
-
-
-    //--------------------------------------------------
     const CommandInfo& findCommand(const std::string &cmdStr, std::string *pCommandFullName=0) const
     {
         auto cmdSeq = splitCommandStr(cmdStr);
@@ -3669,12 +3666,12 @@ struct CommandInfo
         return *this;
     }
 
-    //--------------------------------------------------
-    CommandInfo& setHelpString(const std::string &helpString_)
-    {
-        helpString = helpString_;
-        return *this;
-    }
+    // //--------------------------------------------------
+    // CommandInfo& setHelpString(const std::string &helpString_)
+    // {
+    //     helpString = helpString_;
+    //     return *this;
+    // }
 
     //--------------------------------------------------
     CommandInfo& setMaxInputParams(std::size_t maxInputParams_)
@@ -3700,6 +3697,49 @@ struct CommandInfo
     bool getRawMode() const
     {
         return rawMode;
+    }
+
+    //--------------------------------------------------
+
+    
+
+    //--------------------------------------------------
+    CommandInfo& setUsageInfo(const std::string& usageInfo_)
+    {
+        usageInfo = usageInfo_;
+        return *this;
+    }
+
+    //--------------------------------------------------
+    const std::string& getUsageInfo() const
+    {
+        return usageInfo;
+    }
+
+    //--------------------------------------------------
+    CommandInfo& setBrief(const std::string& brief_)
+    {
+        brief = brief_;
+        return *this;
+    }
+
+    //--------------------------------------------------
+    const std::string& getBrief() const
+    {
+        return brief;
+    }
+
+    //--------------------------------------------------
+    CommandInfo& setDescription(const std::string& description_)
+    {
+        description = description_;
+        return *this;
+    }
+
+    //--------------------------------------------------
+    const std::string& getDescription() const
+    {
+        return description;
     }
 
     //--------------------------------------------------
@@ -4153,6 +4193,160 @@ public:
 
     //--------------------------------------------------
 
+
+    /*
+        Для каждой команды должны быть установлены usageInfo и description.
+
+        Для корневого элемента:
+        - Если у корневого элемента нет подкоманд, то отсутствие хотя бы brief (или description?) - фатальная ошибка.
+        - Если есть подкоманды, то корневой не выводится.
+
+        Выводим инфу так (для многокомандного режима):
+          command subcommand - DESCRIPTION
+          Usage: main-exe command subcommand USAGE_INFO
+          Available options:
+            -opt1
+            -opt2
+
+        Или вот так:
+
+          EXE [GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]  - главная строка, прошита (или берём из корня, если там задано)
+
+          Commands:
+
+            command1 subcommand1 - DESCRIPTION1
+
+            command2 subcommand2 - DESCRIPTION2
+
+            command3 subcommand3 - DESCRIPTION3
+
+          Global Options:
+
+            -opt1
+            -opt2
+
+          main-exe command subcommand USAGE_INFO
+            DESCRIPTION DESCRIPTION DESCRIPTION DESCRIPTION DESCRIPTION DESCRIPTION
+
+        Итого, варианты:
+        - Инфа по всем подкомандам, при этом, два подварианта:
+          - подкоманд нет
+          - подкоманды есть
+        - Инфа по команде, при этом варианты:
+          - это конечная команда
+          - есть подкоманды
+
+        Разницы нет, только надо различать случаи, когда
+        - подкоманд нет и это у нас корневой узел
+        - подкоманд нет, но это не корень
+          
+
+    std::string                          commandName;
+    std::string                          usageInfo;
+    std::string                          brief;
+    std::string                          description;
+    std::map<std::string, CommandInfo>   subCommands;
+    std::unordered_set<std::string>      allowedOptions;
+
+    // pCol->makeText( 78, &argsParser.argsNeedHelp ) - генерит текст справки по опциям, вроде во всех форматах (normal/md/wiki)
+
+    // pCol->getPrintHelpStyle() - возвращает стиль форматирования
+    // umba::::textAddIndent(umba::text_utils::formatTextParas( descr, width, umba::text_utils::TextAlignment::left ), "    " );
+    // if (style==PrintHelpStyle::wiki || style==PrintHelpStyle::md)
+    // umba::command_line::ICommandLineOptionCollector *pCol
+    // std::set<StringType>      argsNeedHelp
+
+    argsParser.programLocationInfo.exeName
+
+    std::string formatTextParas( std::string text, std::string::size_type paraWidth
+                               , TextAlignment textAlignment // = TextAlignment::width
+                               , const SymbolLenCalculator &symbolLenCalculator // = SymbolLenCalculatorEncodingSingleByte()
+                               , bool bAppendMissingComma=true
+                               )
+    inline
+    std::string formatTextParas( std::string text, std::string::size_type paraWidth
+                               , TextAlignment textAlignment // = TextAlignment::width
+                               , bool bAppendMissingComma=true
+                               )
+
+enum class PrintHelpStyle
+{
+    normal,
+    wiki,
+    md,
+    bash_complete,
+    clink_complete
+};
+
+                // Для опций, экраинирование для '--'
+                if (style==PrintHelpStyle::wiki)
+                    oss<<"**%%";
+                else if (style==PrintHelpStyle::md)
+                    oss<<"**";
+
+
+                if (style==PrintHelpStyle::wiki)
+                    oss<<"%%**";
+                else if (style==PrintHelpStyle::md)
+                    oss<<"**";
+
+
+struct CommandInfo
+{
+    std::string                          commandName;
+    std::string                          usageInfo;
+    std::string                          brief;
+    std::string                          description;
+    std::map<std::string, CommandInfo>   subCommands;
+    std::unordered_set<std::string>      allowedOptions;
+};
+
+
+struct CommandSequenceController
+{
+    CommandInfo                   commandInfo; // 
+    mutable bool                  bSealed = false; // Запечатывание происходит, когда после команды или нескольких приходит опция
+    std::vector<std::string>      commandSequence;
+    std::vector<std::string>      inputList;
+};
+
+    */
+
+    std::string makeHelp( std::size_t                  textWidth
+                        , ICommandLineOptionCollector  *pCol
+                        , const std::set<std::string>  &argsNeedHelp
+                        , const std::string            &exeName
+                        )
+    {
+        UMBA_ARG_USED(textWidth);
+        UMBA_ARG_USED(pCol);
+        UMBA_ARG_USED(argsNeedHelp);
+        UMBA_ARG_USED(exeName);
+
+        std::ostringstream oss;
+
+        if (argsNeedHelp.empty())
+        {
+            return pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
+            // Или таки надо по команде вывести справку?
+        }
+
+
+        if (commandInfo.subCommands.empty())
+        {
+            // У нас 
+        
+        }
+
+        if (commandSequence.empty())
+        {
+        }
+
+
+        return std::string();
+    }
+
+// EXE [GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]  - главная строка, прошита (или берём из корня, если там задано)
 
 }; // struct CommandSequenceController
 
