@@ -35,6 +35,7 @@
 #include <unordered_map>
 #include <iterator>
 #include <functional>
+#include <initializer_list>
 
 //
 #include <sys/stat.h>
@@ -3648,6 +3649,12 @@ struct CommandInfo
         return setOptions(optVec);
     }
 
+    CommandInfo& setOptions( std::initializer_list<std::string> options) // list of comma separated strings
+    {
+        for(const auto &optcs: options)
+            setOptions(optcs);
+    }
+
     //--------------------------------------------------
 
 
@@ -3880,6 +3887,10 @@ struct CommandInfo
             }
     
             // Трансформатора нет, поэтому считаем, что у нас имя файла
+
+            if (paramValue.size()>2 && paramValue[0]=='$' && paramValue[0]=='(')
+                 return paramValue; // Пути, начинающиеся с "$(" - не трансформируем - это макрос
+
             return umba::filename::makeAbsPath( paramValue, cwd );
         }
 
@@ -3958,6 +3969,13 @@ public:
         return string::merge<std::string>(commandSequence.begin(), commandSequence.end(), ' ');
     }
 
+    std::string getFullCommandStr(const std::string &addCmd) const
+    {
+        auto cmdVec = commandSequence;
+        cmdVec.push_back(addCmd);
+        return string::merge<std::string>(cmdVec.begin(), cmdVec.end(), ' ');
+    }
+
     //--------------------------------------------------
 
     
@@ -3999,12 +4017,23 @@ public:
 
     //--------------------------------------------------
     void addGlobalOptions(const std::string &optionsStr) { commandInfo.setOptions(optionsStr); }
+    void addGlobalOptions(std::initializer_list<std::string> options) { commandInfo.setOptions(options); } // list of comma separated strings
 
     void addOptionsToFinalCommands(const std::string &optionsStr)
     {
         commandInfo.traverseFinalCommands( [&](CommandInfo *pCommandInfo)
                                            {
                                                pCommandInfo->setOptions(optionsStr);
+                                               return true;
+                                           }
+                                         );
+    }
+
+    void addOptionsToFinalCommands(std::initializer_list<std::string> options)
+    {
+        commandInfo.traverseFinalCommands( [&](CommandInfo *pCommandInfo)
+                                           {
+                                               pCommandInfo->setOptions(options);
                                                return true;
                                            }
                                          );
@@ -4059,11 +4088,11 @@ public:
             optName = "-" + optName;
 
         auto fullCmd = getFullCommandStr();
-
+         
         if (fullCmd.empty())
-            errMsg = "option '" + optName + "' is not a global option. It is a command specific option";
+            errMsg = "option '" + optName + "' is not a global option. It is a command specific option.";
         else
-            errMsg = "option '" + optName + "' cannot be applied for command '" + getFullCommandStr() + "'";
+            errMsg = "option '" + optName + "' cannot be applied for command '" + getFullCommandStr() + "'.";
 
         return false;
     }
@@ -4106,30 +4135,33 @@ public:
     {
         if (isSealed())
         {
-            errMsg = "command and it's subcommands cannot be mixed with options";
+            errMsg = "command and it's subcommands cannot be mixed with options.";
             return false;
         }
 
         if (!canAddSubCommand())
         {
-            errMsg = "command and it's subcommands have already been completely entered";
+            errMsg = "command and it's subcommands have already been completely entered.";
             return false;
         }    
 
         if (isSubCommandAllowed(cmd))
             return true;
 
+        // auto fullCmd = getFullCommandStr();
+        //  
+        // if (fullCmd.empty())
+        // {
+        //     errMsg = "unknown command '" + fullCmd + "'";
+        // }
+        // else
+        // {
+        //     errMsg = "incompatible subcommand '" + cmd + "' for command '" + fullCmd + "'";
+        // }
 
-        auto fullCmd = getFullCommandStr();
+        auto fullWrongCmd = getFullCommandStr(cmd);
 
-        if (fullCmd.empty())
-        {
-            errMsg = "unknown command '" + fullCmd + "'";
-        }
-        else
-        {
-            errMsg = "incompatible subcommand '" + cmd + "' for command '" + fullCmd + "'";
-        }
+        errMsg = "unknown command '" + fullWrongCmd + "'.";
 
         return false;
     }
