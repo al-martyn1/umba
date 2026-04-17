@@ -3653,6 +3653,7 @@ struct CommandInfo
     {
         for(const auto &optcs: options)
             setOptions(optcs);
+        return *this;
     }
 
     //--------------------------------------------------
