@@ -19,6 +19,7 @@
 #include "debug_helpers.h"
 #include "rule_of_five.h"
 #include "shellapi.h"
+#include "string.h"
 
 //
 #include <algorithm>
@@ -36,6 +37,8 @@
 #include <iterator>
 #include <functional>
 #include <initializer_list>
+#include <exception>
+#include <stdexcept>
 
 //
 #include <sys/stat.h>
@@ -1106,6 +1109,7 @@ struct ICommandLineOptionCollector
     virtual std::string makeText( std::string::size_type width, std::string *pPrefix, std::string *pSuffix, bool useExt ) = 0;
     virtual std::string makeText( std::string::size_type width, std::string *pPrefix, std::string *pSuffix, bool useExt, const std::set<std::string> *pHelpOnlyThats ) = 0;
 
+    virtual std::string getExeName(bool useExt) const = 0;
 
     //const std::set<std::string>
 
@@ -2216,21 +2220,40 @@ struct CommandLineOptionInfo
         return std::string(1, getHelpQuotChar());
     }
 
+    virtual std::string getExeName(bool useExt) const override
+    {
+        std::string exeName = umba::program_location::getExeName<std::string>();
+        //std::string exeVarName  ;
+
+        if (useExt)
+        {
+            exeName = umba::filename::getFileName(exeName); // umba::filename::appendExtention(umba::filename::getFileName(exeName), umba::filename::getFileExtention(exeName) );
+        }
+        else
+        {
+           exeName = umba::filename::getName(exeName);
+        }
+
+        return exeName;
+    }
+
     virtual std::string makeText( std::string::size_type width, PrintHelpStyle style, std::string *pPrefix, std::string *pSuffix, bool useExt, const std::set<std::string> *pHelpOnlyThats ) override
     {
         std::stringstream oss;
 
-        std::string exeFullName = umba::program_location::getExeName<std::string>();
-        std::string exeVarName  ;
-
-        if (useExt)
-        {
-           exeFullName = umba::filename::appendExtention(umba::filename::getFileName(exeFullName), umba::filename::getFileExtention(exeFullName) );
-        }
-        else
-        {
-           exeFullName = umba::filename::getFileName(exeFullName);
-        }
+        std::string exeFullName = getExeName(useExt);
+        std::string exeVarName;
+        // std::string exeFullName = umba::program_location::getExeName<std::string>();
+        // std::string exeVarName  ;
+        //  
+        // if (useExt)
+        // {
+        //    exeFullName = umba::filename::appendExtention(umba::filename::getFileName(exeFullName), umba::filename::getFileExtention(exeFullName) );
+        // }
+        // else
+        // {
+        //    exeFullName = umba::filename::getFileName(exeFullName);
+        // }
 
         exeVarName = //std::string("_") +
                      //makeCppName( exeFullName );
@@ -3653,7 +3676,6 @@ struct CommandInfo
     {
         for(const auto &optcs: options)
             setOptions(optcs);
-        return *this;
     }
 
     //--------------------------------------------------
@@ -3915,7 +3937,7 @@ struct CommandInfo
 class CommandSequenceController
 {
 
-    CommandInfo                   commandInfo; // 
+    CommandInfo                   commandInfo; // root command info
     mutable bool                  bSealed = false; // Запечатывание происходит, когда после команды или нескольких приходит опция
     std::vector<std::string>      commandSequence;
     std::vector<std::string>      inputList;
@@ -4000,17 +4022,17 @@ public:
     //--------------------------------------------------
     CommandInfo& addCommand(const std::string &cmdSequenceStr)                         { return commandInfo.addCommand(cmdSequenceStr); }
 
-    const CommandInfo& findCommand(const std::vector<std::string> &cmdSequence) const  { return commandInfo.findCommand(cmdSequence); }
-    CommandInfo& findCommand(const std::vector<std::string> &cmdSequence)              { return commandInfo.findCommand(cmdSequence); }
+    const CommandInfo& findCommand(const std::vector<std::string> &cmdSequence, std::string *pCommandFullName=0) const  { return commandInfo.findCommand(cmdSequence, pCommandFullName); }
+    CommandInfo&       findCommand(const std::vector<std::string> &cmdSequence, std::string *pCommandFullName=0)        { return commandInfo.findCommand(cmdSequence, pCommandFullName); }
 
-    const CommandInfo& findCommand(const std::string &cmdSequenceStr) const            { return commandInfo.findCommand(cmdSequenceStr); }
-    CommandInfo& findCommand(const std::string &cmdSequenceStr)                        { return commandInfo.findCommand(cmdSequenceStr); }
+    const CommandInfo& findCommand(const std::string &cmdSequenceStr, std::string *pCommandFullName=0) const            { return commandInfo.findCommand(cmdSequenceStr, pCommandFullName); }
+    CommandInfo&       findCommand(const std::string &cmdSequenceStr, std::string *pCommandFullName=0)                  { return commandInfo.findCommand(cmdSequenceStr, pCommandFullName); }
 
-    const CommandInfo& findCommand() const                                             { return commandInfo.findCommand(commandSequence); }
-    CommandInfo& findCommand()                                                         { return commandInfo.findCommand(commandSequence); }
+    const CommandInfo& findCommand(std::string *pCommandFullName=0) const                                               { return commandInfo.findCommand(commandSequence, pCommandFullName); }
+    CommandInfo&       findCommand(std::string *pCommandFullName=0)                                                     { return commandInfo.findCommand(commandSequence, pCommandFullName); }
 
     const CommandInfo& rootCommand() const { return commandInfo; }
-    CommandInfo& rootCommand()             { return commandInfo; }
+    CommandInfo&       rootCommand()       { return commandInfo; }
 
     //--------------------------------------------------
 
@@ -4302,72 +4324,601 @@ public:
                                , bool bAppendMissingComma=true
                                )
 
-enum class PrintHelpStyle
-{
-    normal,
-    wiki,
-    md,
-    bash_complete,
-    clink_complete
-};
-
-                // Для опций, экраинирование для '--'
-                if (style==PrintHelpStyle::wiki)
-                    oss<<"**%%";
-                else if (style==PrintHelpStyle::md)
-                    oss<<"**";
-
-
-                if (style==PrintHelpStyle::wiki)
-                    oss<<"%%**";
-                else if (style==PrintHelpStyle::md)
-                    oss<<"**";
-
-
-struct CommandInfo
-{
-    std::string                          commandName;
-    std::string                          usageInfo;
-    std::string                          brief;
-    std::string                          description;
-    std::map<std::string, CommandInfo>   subCommands;
-    std::unordered_set<std::string>      allowedOptions;
-};
-
-
-struct CommandSequenceController
-{
-    CommandInfo                   commandInfo; // 
-    mutable bool                  bSealed = false; // Запечатывание происходит, когда после команды или нескольких приходит опция
-    std::vector<std::string>      commandSequence;
-    std::vector<std::string>      inputList;
-};
 
     */
+
+
+protected:
+
+    struct CommandHelpInfo
+    {
+        std::string            commandName;     // Полное имя - собираем по мере обхода
+        std::string            usageInfo;       // Помещается из тупикового (листового) элемента
+        std::string            brief;           // Помещается из тупикового (листового) элемента
+        std::string            description;     // Помещается из тупикового (листового) элемента
+        std::set<std::string>  allowedOptions;  // Собираем по мере спуска
+    };
+
+    // Рекурсивно обходит всех детей. Добавляет собранное в вектор, когда у узла нет детей
+    // Если у узла нет имени, то allowedOptions не обновляются - глобальные опции пропускаются
+    template<typename IterType>
+    static
+    void collectCommandHelpInfoImpl( const CommandInfo             *pCommandInfo
+                                   , IterType                      beginSeqIt
+                                   , IterType                      endSeqIt
+                                   , CommandHelpInfo               collectingHelpInfo
+                                   , std::vector<CommandHelpInfo>  &collectToVec
+                                   , std::size_t                   curLevel = 0
+                                   )
+    {
+        if (!pCommandInfo->commandName.empty())
+        {
+            collectingHelpInfo.allowedOptions.insert(pCommandInfo->allowedOptions.begin(), pCommandInfo->allowedOptions.end());
+
+            if (curLevel)
+            {
+                if (!collectingHelpInfo.commandName.empty())
+                    collectingHelpInfo.commandName.append(1, ' ');
+    
+                collectingHelpInfo.commandName.append(pCommandInfo->commandName);
+            }
+        }
+
+        if (pCommandInfo->subCommands.empty())
+        {
+            collectingHelpInfo.usageInfo   = pCommandInfo->usageInfo  ;
+            collectingHelpInfo.brief       = pCommandInfo->brief      ;
+            collectingHelpInfo.description = pCommandInfo->description;
+
+            // usageInfo может быть пустым, так-то. Это факт, а не лень заполнения, такое бывает, когда у команды нет никаких опций и операндов
+            // 
+            // #if !defined(UMBA_CMD_LINE_CMD_CONTROLLER_NO_THROW_ON_EMPTY_CMD_USAGE_INFO)
+            //     if (collectingHelpInfo.usageInfo.empty())
+            //         throw std::runtime_error("umba::cmd_line::CommandSequenceController::collectCommandHelpInfoImpl: usageInfo not set for command: '" + collectingHelpInfo.commandName + "'");
+            // #endif
+
+            // Если у команды есть опции, то если usageInfo пустое или не начинается с символа '[', то вставляем "[OPTIONS]" или "[ИМЯ_КОМАНДЫ_OPTIONS]"
+            if ( !collectingHelpInfo.allowedOptions.empty()
+              && (collectingHelpInfo.usageInfo.empty() || collectingHelpInfo.usageInfo.front()!='[')
+               )
+            {
+                std::string optionsPrefix = pCommandInfo->commandName;
+                string::toupper(optionsPrefix);
+                if (!optionsPrefix.empty())
+                    optionsPrefix.append(1, '_');
+                optionsPrefix.append("OPTIONS");
+
+                optionsPrefix.insert(0, 1, '[');
+                optionsPrefix.append(1, ']');
+
+                if (!collectingHelpInfo.usageInfo.empty())
+                    optionsPrefix.append(1, ' ');
+
+                collectingHelpInfo.usageInfo.insert(0, optionsPrefix);
+            }
+            
+            // Краткое описание не может быть пустым
+            #if !defined(UMBA_CMD_LINE_CMD_CONTROLLER_NO_THROW_ON_EMPTY_CMD_BRIEF)
+                if (collectingHelpInfo.brief.empty())
+                    throw std::runtime_error("umba::cmd_line::CommandSequenceController::collectCommandHelpInfoImpl: brief not set for command: '" + collectingHelpInfo.commandName + "'");
+            #endif
+
+            // Описание может быть пустым, хрен с ним
+            // #if !defined(UMBA_CMD_LINE_CMD_CONTROLLER_NO_THROW_ON_EMPTY_CMD_DESCRIPTION)
+            //     if (collectingHelpInfo.description.empty())
+            //         throw std::runtime_error("umba::cmd_line::CommandSequenceController::collectCommandHelpInfoImpl: description not set for command: '" + collectingHelpInfo.commandName + "'");
+            // #endif
+            
+            collectToVec.push_back(collectingHelpInfo);
+
+            return;
+        }
+
+
+        auto nextBegin = beginSeqIt;
+        if (nextBegin!=endSeqIt)
+            nextBegin = std::next(nextBegin);
+
+        for(const auto &[subCmdKeyName, subCmdInfo] : pCommandInfo->subCommands)
+        {
+            if (subCmdInfo.commandName.empty())
+                throw std::runtime_error("umba::cmd_line::CommandSequenceController::collectCommandHelpInfoImpl: something goes wrong - commandName not set");
+
+            if (nextBegin!=endSeqIt)
+            {
+                if (subCmdInfo.commandName!=*nextBegin)
+                    continue;
+            }
+
+            collectCommandHelpInfoImpl( &subCmdInfo
+                                      , nextBegin, endSeqIt
+                                      , collectingHelpInfo, collectToVec, curLevel+1
+                                      );
+        }
+
+    }
+
+
+    std::vector<CommandHelpInfo> collectCommandHelpInfo() const
+    {
+        auto cmdSeq = commandSequence;
+        cmdSeq.insert(cmdSeq.begin(), std::string());
+
+        std::vector<CommandHelpInfo> resVec;
+        collectCommandHelpInfoImpl( &commandInfo
+                                  , cmdSeq.begin()
+                                  , cmdSeq.end()
+                                  , CommandHelpInfo()
+                                  , resVec
+                                  , 0
+                                  );
+        return resVec;
+    }
+
+    static
+    void collectCommandNamesImpl(const CommandInfo *pCommandInfo, std::set<std::string> &collectTo) 
+    {
+        {
+            auto cmdNameAsVec = pCommandInfo->splitCommandStr(pCommandInfo->commandName);
+            collectTo.insert(cmdNameAsVec.begin(), cmdNameAsVec.end());
+        }
+
+        for(const auto &[subCmdName, cmdInfo] : pCommandInfo->subCommands)
+        {
+            collectCommandNamesImpl(&cmdInfo, collectTo);
+        }
+    }
+
+    std::set<std::string> collectCommandNames() const
+    {
+        std::set<std::string> s;
+        collectCommandNamesImpl(&commandInfo, s);
+        return s;
+    }
+
+
+    enum class BE {begin, end};
+
+    static std::string s_code_(PrintHelpStyle helpStyle, BE be)
+    {
+        if (helpStyle==PrintHelpStyle::wiki)
+            return be==BE::begin ? "<code>\n" : "</code>\n";
+        else if (helpStyle==PrintHelpStyle::md)
+            return "```\n";
+        else
+            return be==BE::begin ? "    " : "";
+    }
+
+    static std::string s_codeNext_(PrintHelpStyle helpStyle, BE be)
+    {
+        if (helpStyle==PrintHelpStyle::wiki)
+            return be==BE::begin ? "" : "\n"; // std::string();
+        else if (helpStyle==PrintHelpStyle::md)
+            return be==BE::begin ? "" : "\n"; // std::string();
+        else
+            return be==BE::begin ? "    " : "\n";
+    }
+
+    static std::string s_em_(PrintHelpStyle helpStyle, BE be)
+    {
+        if (helpStyle==PrintHelpStyle::wiki)
+            return be==BE::begin ? "**%%" : "%%**";
+        else if (helpStyle==PrintHelpStyle::md)
+            return "**";
+        else
+            return std::string();
+    }
+
+    static std::string s_listItem_(PrintHelpStyle helpStyle, BE be)
+    {
+        if (helpStyle==PrintHelpStyle::wiki)
+            return be==BE::begin ? "* " : "";
+        else if (helpStyle==PrintHelpStyle::md)
+            return be==BE::begin ? "- " : "";
+        else
+            return be==BE::begin ? "    " : "";
+    }
+
+    static std::string s_heading_(PrintHelpStyle helpStyle, BE be, std::size_t level)
+    {
+        if (level<1)
+            level = 1;
+
+        if (level>5)
+            level = 5;
+
+        // Wiki
+        // ====== Headline Level 1 ======
+        // ===== Headline Level 2 =====
+        // ==== Headline Level 3 ====
+        // === Headline Level 4 ===
+        // == Headline Level 5 ==
+        // 6 - level + 1 // level: 1-5
+
+        // MD
+        // # Headline Level 1
+        // ## Headline Level 2
+        // ### Headline Level 3
+
+        if (helpStyle==PrintHelpStyle::wiki)
+            return be==BE::begin
+                 ? std::string(6-level+1, '=') + " "
+                 : " " + std::string(6-level+1, '=')
+                 ;
+        else if (helpStyle==PrintHelpStyle::md)
+            return be==BE::begin
+                 ? std::string(level, '#') + " "
+                 : std::string()
+                 ;
+        else
+            return be==BE::begin
+                 ? std::string()
+                 : ":"
+                 ;
+    }
+
+
+    static std::string s_code(PrintHelpStyle helpStyle, const std::string &str)
+    {
+        auto resStr = s_code_(helpStyle, BE::begin);
+        //bool needLf = !resStr.empty();
+        //return resStr + str + (needLf ? "\n" : "") + code(BE::end);
+        return resStr + str + "\n" + s_code_(helpStyle, BE::end);
+    };
+
+    static std::string s_em(PrintHelpStyle helpStyle, const std::string &str)
+    {
+        return s_em_(helpStyle, BE::begin) + str + s_em_(helpStyle, BE::end);
+    }
+
+    static std::string s_listItem(PrintHelpStyle helpStyle, const std::string &str)
+    {
+        return s_listItem_(helpStyle, BE::begin) + str + s_listItem_(helpStyle, BE::end) + "\n";
+    }
+
+    static std::string s_heading(PrintHelpStyle helpStyle, const std::string &str, std::size_t level)
+    {
+        return s_heading_(helpStyle, BE::begin, level) + str + s_heading_(helpStyle, BE::end, level) + "\n";
+    }
+
+    static bool s_isRichFormat(PrintHelpStyle helpStyle)        { return helpStyle!=PrintHelpStyle::normal; }
+    static bool s_isCompletionFormat(PrintHelpStyle helpStyle)  { return helpStyle==PrintHelpStyle::bash_complete || helpStyle==PrintHelpStyle::clink_complete; }
+
+
+    static void s_printHelpOnHelp(std::ostream &oss, PrintHelpStyle helpStyle, const std::string &exeName)
+    {
+        //if (helpOnHelp)
+        {
+            if (s_isRichFormat(helpStyle)) // Требует отдельного раздела
+                oss << s_heading(helpStyle, "Getting help", 2) << "\n";
+
+            oss << s_heading(helpStyle, "Help options", 3) << "\n"; // Help options
+            oss << s_listItem(helpStyle, s_em(helpStyle, "-?"));
+            oss << s_listItem(helpStyle, s_em(helpStyle, "-h"));
+            oss << s_listItem(helpStyle, s_em(helpStyle, "--help"));
+            oss << "\n";
+
+            oss << s_heading(helpStyle, "Get All Help", 3) << "\n"; // All help
+            oss << s_code(helpStyle, exeName + " --help") << "\n";
+
+            oss << s_heading(helpStyle, "Get Help on Option(s)", 3) << "\n"; // Help on option(s)
+            oss << s_code(helpStyle, exeName + " OPTION... --help") << "\n";
+
+            oss << s_heading(helpStyle, "Get Help on Command", 3) << "\n"; // Help on command
+            oss << s_code(helpStyle, exeName + " COMMAND [SUBCOMMAND...] --help") << "\n";
+
+            oss << s_heading(helpStyle, "Get Help on Command Option(s)", 3) << "\n"; // Help on command option(s)
+            oss << s_code(helpStyle, exeName + " COMMAND [SUBCOMMAND...] OPTION... --help") << "\n";
+            
+        }
+    }
+
+    template<typename ResultSetType, typename SetType1, typename SetType2>
+    static ResultSetType setIntersect(const SetType1 &s1, const SetType2 &s2)
+    {
+        ResultSetType resSet;
+
+        for(auto &&sm1 : s1)
+        {
+            if (s2.find(sm1)==s2.end())
+                continue;
+
+            resSet.insert(sm1);
+        }
+
+        return resSet;
+    }
+
+
+public:
 
     std::string makeHelp( std::size_t                  textWidth
                         , ICommandLineOptionCollector  *pCol
                         , const std::set<std::string>  &argsNeedHelp
-                        , const std::string            &exeName
-                        )
+                        , bool                         helpOnHelp = true
+                        , std::string                  exeName = std::string()
+                        ) const
     {
         UMBA_ARG_USED(textWidth);
         UMBA_ARG_USED(pCol);
         UMBA_ARG_USED(argsNeedHelp);
         UMBA_ARG_USED(exeName);
 
+        if (exeName.empty())
+            exeName = pCol->getExeName(false /* !useExt */ );
+
+        if (textWidth<24)
+            textWidth = 24;
+
+
         std::ostringstream oss;
 
+        auto helpStyle = pCol->getPrintHelpStyle();
+        // std::string pCol->getExeName(bool useExt)
+
+        auto isRichFormat = [&]()       { return s_isRichFormat(helpStyle); };
+        auto isCompletionFormat = [&]() { return s_isCompletionFormat(helpStyle); };
+
+
+        //--------------------------------------------------------------------------------------------------------------------
+        if (isCompletionFormat())
+        {
+            // Пока сделаем по простому, через complete -W
+            // https://chat.deepseek.com/share/6mwr7tvh9agfqd61sl
+            // --bash : complete -W " -q --quet --home --no-builtin-options --no-custom-builtin-options --no-user-builtin-options -v --version --version-info --builtin-options-info --where --color --gcc --autocomplete-install --autocomplete-uninstall -Y --overwrite -N --no-overwrite --role-setup -d --delete -D --force-delete -m --move -a --all --message --global --local -l --list --unset --oneline --graph -p --patch --since -S --soft -X --mixed -H --hard --init -R --recursive" _test08.exe
+            // --clink: local _test08.exe_tree = { "-q", "--quet", "--home", "--no-builtin-options", "--no-custom-builtin-options", "--no-user-builtin-options", "-v", "--version", "--version-info", "--builtin-options-info", "--where", "--color", "--gcc", "--autocomplete-install", "--autocomplete-uninstall", "-Y", "--overwrite", "-N", "--no-overwrite", "--role-setup", "-d", "--delete", "-D", "--force-delete", "-m", "--move", "-a", "--all", "--message", "--global", "--local", "-l", "--list", "--unset", "--oneline", "--graph", "-p", "--patch", "--since", "-S", "--soft", "-X", "--mixed", "-H", "--hard", "--init", "-R", "--recursive" } clink.arg.register_parser("_test08.exe", _test08.exe_tree)
+
+            // TODO: Надо сделать через функцию: complete -F
+
+            // В старом коде переделывать что-либо не охота, поэтому тупо встроимся в выдачу
+            static const std::string bashPrefix  = "complete -W \"";
+            static const std::string clinkPrefix = "_tree = { ";
+
+            std::set<std::string> commandNamesSet = collectCommandNames();
+
+            std::string helpText = pCol->makeText(textWidth, &argsNeedHelp);
+
+            auto pos = helpText.find(bashPrefix);
+            if (pos != helpText.npos)
+            {
+                pos += bashPrefix.size();
+                std::string commandNames = string::merge<std::string>(commandNamesSet.begin(), commandNamesSet.end(), ' ');
+                helpText.insert(pos, commandNames);
+            }
+            else if ((pos=helpText.find(clinkPrefix)) != helpText.npos)
+            {
+                pos += clinkPrefix.size();
+                std::string commandNames = " ";
+                for(auto &&cmdName: commandNamesSet)
+                {
+                    commandNames.append("\"" + cmdName + "\", ");
+                }
+                helpText.insert(pos, commandNames);
+            }
+
+            return helpText; // pCol->makeText(textWidth, &argsNeedHelp);
+        }
+
+
+        //--------------------------------------------------------------------------------------------------------------------
+        auto code_     = [&](BE be) -> std::string                     { return s_code_(helpStyle, be); };
+        auto codeNext_ = [&](BE be) -> std::string                     { return s_codeNext_(helpStyle, be); };
+        auto em_       = [&](BE be) -> std::string                     { return s_em_(helpStyle, be); };
+        auto listItem_ = [&](BE be) -> std::string                     { return s_listItem_(helpStyle, be); };
+        auto heading_  = [&](BE be, std::size_t level) -> std::string  { return s_heading_(helpStyle, be, level); };
+        auto code      = [&](const std::string &str) -> std::string    { return s_code(helpStyle, str); };
+        auto em        = [&](const std::string &str) -> std::string    { return s_em(helpStyle, str); };
+        auto listItem  = [&](const std::string &str) -> std::string    { return s_listItem(helpStyle, str); };
+        auto heading   = [&](const std::string &str, std::size_t level) -> std::string { return s_heading(helpStyle, str, level); };
+
+        //--------------------------------------------------------------------------------------------------------------------
+        auto printHelpOnHelp = [&]()
+        {
+            if (helpOnHelp)
+                s_printHelpOnHelp(oss, helpStyle, exeName);
+        };
+
+        //--------------------------------------------------------------------------------------------------------------------
+        std::vector<CommandHelpInfo> collectedHelpInfo = collectCommandHelpInfo();
+
+        if (collectedHelpInfo.empty())
+        {
+            // oss << "makeHelp: something goes wrong\n";
+            throw std::runtime_error("umba::cmd_line::CommandSequenceController::makeHelp: something goes wrong");
+        }
+
+        std::set<std::string> globalAllowedOptions = std::set<std::string>(commandInfo.allowedOptions.begin(), commandInfo.allowedOptions.end());
+
+
+
+        if (commandSequence.empty())
+        {
+            // Выводим полную справку
+
+            if (!argsNeedHelp.empty())
+                return pCol->makeText( textWidth, &argsNeedHelp );
+
+            #if 1
+            if (!s_isRichFormat(helpStyle))
+                oss << "Usage:\n\n";
+
+            {
+                auto usageString = commandInfo.usageInfo;
+                if (usageString.empty())
+                {
+                    if (commandInfo.subCommands.empty())
+                    {
+                        if (globalAllowedOptions.empty())
+                            usageString = "[PARAMETERS...]";
+                        else
+                            usageString = "[OPTIONS...] [PARAMETERS...]";
+                    }
+                    else // Есть подкоманды
+                    {
+                        if (!globalAllowedOptions.empty())
+                            usageString = "[GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
+                        else
+                            usageString = "COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
+                    }
+                }
+
+                oss << code(exeName + " " + usageString) << "\n";
+            }
+
+            printHelpOnHelp();
+            #endif
+
+            if (!commandInfo.subCommands.empty())
+            {
+                // У нас не пусты подкоманды
+
+                // Выводим summary по командам
+                // Выводим глобальные опции
+                // Выводим бриф по командам - использование и бриф описание, и список опций без объяснений
+                // После этого выводим все опции подряд
+
+                oss << "\n";
+
+                if (!collectedHelpInfo.empty())
+                {
+                    oss << s_heading(helpStyle, "Commands Summary", 2); // << "\n";
+                    oss << "\n";
+
+                    // std::vector<CommandHelpInfo> collectedHelpInfo = collectCommandHelpInfo();
+
+                    oss << code_(BE::begin);
+
+                    //for(auto &&cmdInfo : collectedHelpInfo)
+
+                    for(auto it=collectedHelpInfo.begin(); it!=collectedHelpInfo.end(); ++it)
+                    {
+                        auto fullCmd = exeName + " ";
+                        if (!globalAllowedOptions.empty())
+                            fullCmd += "[GLOBAL_OPTIONS] ";
+                        fullCmd += it->commandName;
+                        //if (it->allowedOptions.empty())
+                        if (!it->usageInfo.empty())
+                        {
+                            fullCmd += " ";
+                            fullCmd += it->usageInfo;
+                        }
+
+                        // if (it==collectedHelpInfo.begin())
+                        //     oss << code_(BE::begin);
+                        // else
+                        //     oss << codeNext_(BE::begin);
+
+                        if (it!=collectedHelpInfo.begin())
+                            oss << codeNext_(BE::begin);
+
+                        oss << fullCmd;
+                        oss << codeNext_(BE::end);
+                    }
+
+                    oss << code_(BE::end);
+
+                }
+
+                oss << "\n";
+
+                oss << s_heading(helpStyle, "Global options", 2); // << "\n";
+                // oss << "\n"; // тут не нужно
+                oss << pCol->makeText( textWidth, &globalAllowedOptions ); // выводим справку по глобальным опциям
+
+
+
+
+
+                // pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
+
+// const std::set<std::string>  &argsNeedHelp
+            }
+
+            // heading(, 2)
+
+
+        }
+
+
+    // struct CommandHelpInfo
+    // {
+    //     std::string            commandName;     // Полное имя - собираем по мере обхода
+    //     std::string            usageInfo;       // Помещается из тупикового (листового) элемента
+    //     std::string            brief;           // Помещается из тупикового (листового) элемента
+    //     std::string            description;     // Помещается из тупикового (листового) элемента
+    //     std::set<std::string>  allowedOptions;  // Собираем по мере спуска
+    // };
+
+        // exeName
+        // EXE [GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]  - главная строка, прошита (или берём из корня, если там задано)
+        // helpOnHelp
+
+
+// struct CommandInfo
+// {
+//     std::string                          commandName;
+//     std::string                          usageInfo;
+//     std::string                          brief;
+//     std::string                          description;
+//     std::map<std::string, CommandInfo>   subCommands;
+//     std::unordered_set<std::string>      allowedOptions;
+// };
+//  
+//  
+// struct CommandSequenceController
+// {
+//     CommandInfo                   commandInfo; // 
+//     mutable bool                  bSealed = false; // Запечатывание происходит, когда после команды или нескольких приходит опция
+//     std::vector<std::string>      commandSequence;
+//     std::vector<std::string>      inputList;
+// };
+
+
+            // std::string descr = umba::text_utils::textAppendDot(optInfo.description);
+            // //if (!descr.empty() && descr.back()!='.')
+            // //    descr.append(1, '.');
+            //  
+            // std::string descExtra = descExtraOss.str();
+            // if (!descExtra.empty())
+            //     descExtra = std::string("\n") + descExtra;
+            //  
+            // descr.append(descExtra);
+            // descr = umba::text_utils::textAppendDot(descr);
+            //  
+            // if (style==PrintHelpStyle::wiki || style==PrintHelpStyle::md)
+            // {
+            //     std::string tmp = descr;
+            //     umba::string_plus::trim(tmp);
+            //     if (!tmp.empty() && tmp.back()!='.')
+            //         tmp.append(1, '.');
+            //     oss<<" - " <<tmp;
+            // }
+            // else
+            // {
+            //     oss<<"\n";
+            //     oss<< umba::text_utils::textAddIndent(umba::text_utils::formatTextParas( descr, width, umba::text_utils::TextAlignment::left ), "    " );
+            // }
+
+
+
+        return oss.str();
+
+#if 0
         if (argsNeedHelp.empty())
         {
-            return pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
+            // return pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
             // Или таки надо по команде вывести справку?
+
+            // Выводим полную справку по команде, и полную справку по командам - 
+            // только выкидываем те опции, которые не принадлежат команде - их надо пометить командой, к которой они принадлежат, 
+            // или строкой "global option"
+
         }
 
 
         if (commandInfo.subCommands.empty())
         {
-            // У нас 
+            // У нас задана подкоманда
         
         }
 
@@ -4377,6 +4928,8 @@ struct CommandSequenceController
 
 
         return std::string();
+#endif
+
     }
 
 // EXE [GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]  - главная строка, прошита (или берём из корня, если там задано)
