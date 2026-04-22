@@ -539,7 +539,14 @@ inline std::string getCurrentDirectory()
     return impl_helpers::encodeFromNative(fsysapi::getCurrentDirectory<native_fs_string_t>());
 }
 
-//------------------------------
+//----------------------------------------------------------------------------
+//! Получение текущего рабочего каталога
+inline std::string getCurrentDir() { return getCurrentDirectory(); }
+
+//----------------------------------------------------------------------------
+
+
+//----------------------------------------------------------------------------
 //! Установка текущего рабочего каталога
 inline bool setCurrentDirectory(const std::wstring &newCurDir)
 {
@@ -567,42 +574,21 @@ inline bool setCurrentDirectory(const char *newCurDir)
     return fsysapi::setCurrentDirectory(impl_helpers::encodeToNative(newCurDir));
 }
 
-//----------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------
-//! Получение текущего рабочего каталога
-inline std::string getCurrentDir()
-{
-    return impl_helpers::encodeFromNative(fsysapi::getCurrentDirectory<native_fs_string_t>());
-}
+//------------------------------
+//! Установка текущего рабочего каталога
+inline bool setCurrentDir(const std::wstring &newCurDir) { return setCurrentDirectory(newCurDir); }
 
 //------------------------------
 //! Установка текущего рабочего каталога
-inline bool setCurrentDir(const std::wstring &newCurDir)
-{
-    return fsysapi::setCurrentDirectory(impl_helpers::encodeToNative(newCurDir));
-}
+inline bool setCurrentDir(const std::string &newCurDir)  { return setCurrentDirectory(newCurDir); }
 
 //------------------------------
 //! Установка текущего рабочего каталога
-inline bool setCurrentDir(const std::string &newCurDir)
-{
-    return fsysapi::setCurrentDirectory(impl_helpers::encodeToNative(newCurDir));
-}
+inline bool setCurrentDir(const wchar_t *newCurDir)      { return setCurrentDirectory(newCurDir); }
 
 //------------------------------
 //! Установка текущего рабочего каталога
-inline bool setCurrentDir(const wchar_t *newCurDir)
-{
-    return fsysapi::setCurrentDirectory(impl_helpers::encodeToNative(newCurDir));
-}
-
-//------------------------------
-//! Установка текущего рабочего каталога
-inline bool setCurrentDir(const char *newCurDir)
-{
-    return fsysapi::setCurrentDirectory(impl_helpers::encodeToNative(newCurDir));
-}
+inline bool setCurrentDir(const char *newCurDir)         { return setCurrentDirectory(newCurDir); }
 
 //----------------------------------------------------------------------------
 
@@ -610,16 +596,42 @@ inline bool setCurrentDir(const char *newCurDir)
 
 //----------------------------------------------------------------------------
 //! Перемещение (переименование) файла или каталога
-inline bool move(const std::string &oldName, const std::string &newName)
+inline bool moveFileOrDirectory(const std::string &oldName, const std::string &newName)
 {
-    return fsysapi::move(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName));
+    return fsysapi::moveFileOrDirectory(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName));
 }
 
 //------------------------------
 //! Перемещение (переименование) файла или каталога
-inline bool move(const std::wstring &oldName, const std::wstring &newName)
+inline bool moveFileOrDirectory(const std::wstring &oldName, const std::wstring &newName)
 {
-    return fsysapi::move(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName));
+    return fsysapi::moveFileOrDirectory(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName));
+}
+
+//------------------------------
+//! Перемещение (переименование) файла или каталога
+inline bool moveFileOrDir(const std::string &oldName, const std::string &newName)   { return moveFileOrDirectory(oldName, newName); }
+
+//------------------------------
+//! Перемещение (переименование) файла или каталога
+inline bool moveFileOrDir(const std::wstring &oldName, const std::wstring &newName) { return moveFileOrDirectory(oldName, newName); }
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+//! Перемещение (переименование) файла или каталога
+inline bool copyFile(const std::string &oldName, const std::string &newName, bool bOverwrite)
+{
+    return fsysapi::copyFile(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName), bOverwrite);
+}
+
+//------------------------------
+//! Перемещение (переименование) файла или каталога
+inline bool copyFile(const std::wstring &oldName, const std::wstring &newName, bool bOverwrite)
+{
+    return fsysapi::copyFile(impl_helpers::encodeToNative(oldName), impl_helpers::encodeToNative(newName), bOverwrite);
 }
 
 //----------------------------------------------------------------------------
@@ -686,35 +698,21 @@ inline bool deleteDirectory( const char *dirname )
     return fsysapi::deleteDirectory(impl_helpers::encodeToNative(dirname));
 }
 
-//----------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------
+//------------------------------
 //! Удаление каталога
-inline bool deleteDir( const std::wstring &dirname )
-{
-    return fsysapi::deleteDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool deleteDir( const std::wstring &dirname ) { return deleteDirectory(dirname); }
 
 //------------------------------
 //! Удаление каталога
-inline bool deleteDir( const std::string &dirname )
-{
-    return fsysapi::deleteDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool deleteDir( const std::string &dirname )  { return deleteDirectory(dirname); }
 
 //------------------------------
 //! Удаление каталога
-inline bool deleteDir( const wchar_t *dirname )
-{
-    return fsysapi::deleteDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool deleteDir( const wchar_t *dirname )      { return deleteDirectory(dirname); }
 
 //------------------------------
 //! Удаление каталога
-inline bool deleteDir( const char *dirname )
-{
-    return fsysapi::deleteDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool deleteDir( const char *dirname )         { return deleteDirectory(dirname); }
 
 //----------------------------------------------------------------------------
 
@@ -748,35 +746,21 @@ inline bool createDirectory( const char *dirname )
     return fsysapi::createDirectory(impl_helpers::encodeToNative(dirname));
 }
 
-//----------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------
+//------------------------------
 //! Создание каталога
-inline bool createDir( const std::wstring &dirname )
-{
-    return fsysapi::createDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool createDir( const std::wstring &dirname )  { return createDirectory(dirname); }
 
 //------------------------------
 //! Создание каталога
-inline bool createDir( const std::string &dirname )
-{
-    return fsysapi::createDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool createDir( const std::string &dirname )   { return createDirectory(dirname); }
 
 //------------------------------
 //! Создание каталога
-inline bool createDir( const wchar_t *dirname )
-{
-    return fsysapi::createDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool createDir( const wchar_t *dirname )       { return createDirectory(dirname); }
 
 //------------------------------
 //! Создание каталога
-inline bool createDir( const char *dirname )
-{
-    return fsysapi::createDirectory(impl_helpers::encodeToNative(dirname));
-}
+inline bool createDir( const char *dirname )          { return createDirectory(dirname); }
 
 //----------------------------------------------------------------------------
 
@@ -810,35 +794,21 @@ inline bool createDirectoryEx( const char *dirname, bool forceCreatePath )
     return fsysapi::createDirectoryEx(impl_helpers::encodeToNative(dirname), forceCreatePath);
 }
 
-//----------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------
+//------------------------------
 //! Создание каталога с возможностью создания полного пути
-inline bool createDirEx( const std::wstring &dirname, bool forceCreatePath )
-{
-    return fsysapi::createDirectoryEx(impl_helpers::encodeToNative(dirname), forceCreatePath);
-}
+inline bool createDirEx( const std::wstring &dirname, bool forceCreatePath ) { return createDirectoryEx(dirname, forceCreatePath); }
 
 //------------------------------
 //! Создание каталога с возможностью создания полного пути
-inline bool createDirEx( const std::string &dirname, bool forceCreatePath )
-{
-    return fsysapi::createDirectoryEx(impl_helpers::encodeToNative(dirname), forceCreatePath);
-}
+inline bool createDirEx( const std::string &dirname, bool forceCreatePath )  { return createDirectoryEx(dirname, forceCreatePath); }
 
 //------------------------------
 //! Создание каталога с возможностью создания полного пути
-inline bool createDirEx( const wchar_t *dirname, bool forceCreatePath )
-{
-    return fsysapi::createDirectoryEx(impl_helpers::encodeToNative(dirname), forceCreatePath);
-}
+inline bool createDirEx( const wchar_t *dirname, bool forceCreatePath )      { return createDirectoryEx(dirname, forceCreatePath); }
 
 //------------------------------
 //! Создание каталога с возможностью создания полного пути
-inline bool createDirEx( const char *dirname, bool forceCreatePath )
-{
-    return fsysapi::createDirectoryEx(impl_helpers::encodeToNative(dirname), forceCreatePath);
-}
+inline bool createDirEx( const char *dirname, bool forceCreatePath )         { return createDirectoryEx(dirname, forceCreatePath); }
 
 //----------------------------------------------------------------------------
 

@@ -883,14 +883,27 @@ bool setCurrentDirectory(const StringType &newCurDir)
 //----------------------------------------------------------------------------
 //! Перемещение (переименование) файла или каталога
 template<typename StringType> inline
-bool move(const StringType &oldName, const StringType &newName)
+bool moveFileOrDirectory(const StringType &oldName, const StringType &newName)
 {
     UMBA_USED(oldName);
     UMBA_USED(newName);
     #ifdef UMBA_DEBUGBREAK
         UMBA_DEBUGBREAK();
     #endif
-    throw std::runtime_error("Not implemented: move not specialized for this StringType");
+    throw std::runtime_error("Not implemented: moveFileOrDirectory not specialized for this StringType");
+}
+
+//----------------------------------------------------------------------------
+//! Копирование файла
+template<typename StringType> inline
+bool copyFile(const StringType &oldName, const StringType &newName, bool bOverwrite)
+{
+    UMBA_USED(oldName);
+    UMBA_USED(newName);
+    #ifdef UMBA_DEBUGBREAK
+        UMBA_DEBUGBREAK();
+    #endif
+    throw std::runtime_error("Not implemented: copyFile not specialized for this StringType");
 }
 
 //----------------------------------------------------------------------------
@@ -1017,7 +1030,7 @@ bool isFileExistingExclusiveReadableWrittable(const StringType &fname)
 //----------------------------------------------------------------------------
 //! Перемещение (переименование) файла или каталога, специализация для std::string
 template<> inline
-bool move<std::string>(const std::string &oldName, const std::string &newName)
+bool moveFileOrDirectory<std::string>(const std::string &oldName, const std::string &newName)
 {
     return ::MoveFileA( umba::filename::prepareForNativeUsage(oldName).c_str() // lpExistingFileName
                       , umba::filename::prepareForNativeUsage(newName).c_str() // lpNewFileName
@@ -1027,12 +1040,38 @@ bool move<std::string>(const std::string &oldName, const std::string &newName)
 //----------------------------------------------------------------------------
 //! Перемещение (переименование) файла или каталога, специализация для std::wstring
 template<> inline
-bool move<std::wstring>(const std::wstring &oldName, const std::wstring &newName)
+bool moveFileOrDirectory<std::wstring>(const std::wstring &oldName, const std::wstring &newName)
 {
     return ::MoveFileW( umba::filename::prepareForNativeUsage(oldName).c_str() // lpExistingFileName
                       , umba::filename::prepareForNativeUsage(newName).c_str() // lpNewFileName
                       ) ? true : false;
 }
+
+//----------------------------------------------------------------------------
+//! Копирование файла, специализация для std::string
+template<> inline
+bool copyFile<std::string>(const std::string &oldName, const std::string &newName, bool bOverwrite)
+{
+    return ::CopyFileA( umba::filename::prepareForNativeUsage(oldName).c_str() // lpExistingFileName
+                      , umba::filename::prepareForNativeUsage(newName).c_str() // lpNewFileName
+                      , bOverwrite ? FALSE /* !bFailIfExists */ : TRUE /* bFailIfExists */
+                      ) ? true : false;
+}
+
+//----------------------------------------------------------------------------
+//! Копирование файла, специализация для std::wstring
+template<> inline
+bool copyFile<std::wstring>(const std::wstring &oldName, const std::wstring &newName, bool bOverwrite)
+{
+    return ::CopyFileW( umba::filename::prepareForNativeUsage(oldName).c_str() // lpExistingFileName
+                      , umba::filename::prepareForNativeUsage(newName).c_str() // lpNewFileName
+                      , bOverwrite ? FALSE /* !bFailIfExists */ : TRUE /* bFailIfExists */
+                      ) ? true : false;
+}
+
+//----------------------------------------------------------------------------
+
+
 
 //----------------------------------------------------------------------------
 //! Удаление файла, специализация для std::string
