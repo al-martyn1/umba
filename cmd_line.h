@@ -3659,25 +3659,34 @@ struct CommandInfo
 
 
     //--------------------------------------------------
-    CommandInfo& setOptions(const std::vector<std::string> &options)
-    {
-        allowedOptions.insert(options.begin(), options.end());
-        return *this;
-    }
+    CommandInfo& setOptions(const std::vector<std::string> &options)                      { allowedOptions.insert(options.begin(), options.end()); return *this; }
+
+    CommandInfo& setOptionsMultiOpt(const std::string &optionsStr) /* comma separated */  { auto optVec = splitOptionsStr(optionsStr); return setOptions(optVec); }
+    CommandInfo& setOptionsMultiOpt(const char* optionsStr) /* comma separated */         { auto optVec = splitOptionsStr(optionsStr); return setOptions(optVec); }
+    CommandInfo& setOptionsMultiOpt(const std::vector<std::string> &options)              { allowedOptions.insert(options.begin(), options.end()); return *this; }
+
+    // CommandInfo& setOptionSingleImpl(const std::string &optionStr)                        { allowedOptions.insert(optionStr); return *this; }
+    // CommandInfo& setOptionSingleImpl(const char* optionStr)                               { allowedOptions.insert(std::string(optionStr)); return *this; }
+
+    CommandInfo& setOptions(const std::string &optionsStr) /* comma separated */          { return setOptionsMultiOpt(optionsStr); }
+    CommandInfo& setOptions(const char *optionsStr) /* comma separated */                 { return setOptionsMultiOpt(std::string(optionsStr)); }
 
     //--------------------------------------------------
-    CommandInfo& setOptions(const std::string &optionsStr) // comma separated
-    {
-        auto optVec = splitOptionsStr(optionsStr);
-        return setOptions(optVec);
-    }
-
     CommandInfo& setOptions( std::initializer_list<std::string> options) // list of comma separated strings
     {
         for(const auto &optcs: options)
             setOptions(optcs);
+        return *this;
     }
 
+    //--------------------------------------------------
+    template<typename... Args>
+    CommandInfo& setOptions(Args&&... args)
+    {
+        // Fold expression (C++17) – вызывает setOptions для каждого аргумента
+        (setOptionsMultiOpt(std::forward<Args>(args)), ...);
+        return *this;
+    }
     //--------------------------------------------------
 
 
@@ -4039,8 +4048,13 @@ public:
 
 
     //--------------------------------------------------
-    void addGlobalOptions(const std::string &optionsStr) { commandInfo.setOptions(optionsStr); }
-    void addGlobalOptions(std::initializer_list<std::string> options) { commandInfo.setOptions(options); } // list of comma separated strings
+    template<typename... Args>
+    void addGlobalOptions(Args&&... args)
+    {
+        // Fold expression (C++17) – вызывает commandInfo.setOptions для каждого аргумента
+        (commandInfo.setOptions(std::forward<Args>(args)), ...);
+    }
+
 
     void addOptionsToFinalCommands(const std::string &optionsStr)
     {
@@ -4052,15 +4066,15 @@ public:
                                          );
     }
 
-    void addOptionsToFinalCommands(std::initializer_list<std::string> options)
-    {
-        commandInfo.traverseFinalCommands( [&](CommandInfo *pCommandInfo)
-                                           {
-                                               pCommandInfo->setOptions(options);
-                                               return true;
-                                           }
-                                         );
-    }
+    // void addOptionsToFinalCommands(std::initializer_list<std::string> options)
+    // {
+    //     commandInfo.traverseFinalCommands( [&](CommandInfo *pCommandInfo)
+    //                                        {
+    //                                            pCommandInfo->setOptions(options);
+    //                                            return true;
+    //                                        }
+    //                                      );
+    // }
 
     //--------------------------------------------------
 
