@@ -4112,7 +4112,7 @@ public:
 
     //--------------------------------------------------
     // Проверяет допустимость опции для текущей команды, а также "запечатывает" введённые команды
-    bool isOptionAllowed(const CommandLineOption &opt, std::string &errMsg)
+    bool isOptionAllowed(const CommandLineOption &opt, std::string &errMsg) const
     {
         if (isOptionAllowed(opt))
             return true;
