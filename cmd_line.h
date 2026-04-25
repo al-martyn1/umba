@@ -4351,6 +4351,52 @@ protected:
         std::string            brief;           // Помещается из тупикового (листового) элемента
         std::string            description;     // Помещается из тупикового (листового) элемента
         std::set<std::string>  allowedOptions;  // Собираем по мере спуска
+
+
+        std::string makeUsageString(const std::string &exeName, bool hasGlobalOptions) const
+        {
+            auto fullCmd = exeName + " ";
+
+            if (hasGlobalOptions)
+                fullCmd += "[GLOBAL_OPTIONS...] ";
+
+            fullCmd += commandName;
+
+            if (!usageInfo.empty())
+            {
+                fullCmd += " ";
+                fullCmd += usageInfo;
+            }
+
+            return fullCmd;
+        }
+
+        std::string makeCommandOptionHelpCommand(const std::string &exeName, const std::string &optForHelp) const
+        {
+            auto fullCmd = exeName + " ";
+
+            fullCmd += commandName;
+
+            fullCmd += " ";
+            fullCmd += optForHelp;
+            fullCmd += " --help";
+
+            return fullCmd;
+        }
+
+        std::string makeCommandHelpCommand(const std::string &exeName) const
+        {
+            auto fullCmd = exeName + " ";
+
+            fullCmd += commandName;
+
+            fullCmd += " --help";
+
+            return fullCmd;
+        }
+
+
+
     };
 
     // Рекурсивно обходит всех детей. Добавляет собранное в вектор, когда у узла нет детей
@@ -4391,7 +4437,7 @@ protected:
             //         throw std::runtime_error("umba::cmd_line::CommandSequenceController::collectCommandHelpInfoImpl: usageInfo not set for command: '" + collectingHelpInfo.commandName + "'");
             // #endif
 
-            // Если у команды есть опции, то если usageInfo пустое или не начинается с символа '[', то вставляем "[OPTIONS]" или "[ИМЯ_КОМАНДЫ_OPTIONS]"
+            // Если у команды есть опции, то если usageInfo пустое или не начинается с символа '[', то вставляем "[OPTIONS...]" или "[ИМЯ_КОМАНДЫ_OPTIONS...]"
             if ( !collectingHelpInfo.allowedOptions.empty()
               && (collectingHelpInfo.usageInfo.empty() || collectingHelpInfo.usageInfo.front()!='[')
                )
@@ -4400,7 +4446,7 @@ protected:
                 string::toupper(optionsPrefix);
                 if (!optionsPrefix.empty())
                     optionsPrefix.append(1, '_');
-                optionsPrefix.append("OPTIONS");
+                optionsPrefix.append("OPTIONS...");
 
                 optionsPrefix.insert(0, 1, '[');
                 optionsPrefix.append(1, ']');
@@ -4513,6 +4559,17 @@ protected:
             return be==BE::begin ? "    " : "\n";
     }
 
+    static std::string s_inline_code_(PrintHelpStyle helpStyle, BE  /* be */ )
+    {
+        if (helpStyle==PrintHelpStyle::wiki)
+            return "\'\'"; // be==BE::begin ? "<code>\n" : "</code>\n";
+        else if (helpStyle==PrintHelpStyle::md)
+            return "`";
+        else
+            return "";
+    }
+
+
     static std::string s_em_(PrintHelpStyle helpStyle, BE be)
     {
         if (helpStyle==PrintHelpStyle::wiki)
@@ -4521,6 +4578,17 @@ protected:
             return "**";
         else
             return std::string();
+    }
+
+    static std::string s_tt_(PrintHelpStyle helpStyle, BE be)
+    {
+        return s_inline_code_(helpStyle, be);
+        // if (helpStyle==PrintHelpStyle::wiki)
+        //     return be==BE::begin ? "**%%" : "%%**";
+        // else if (helpStyle==PrintHelpStyle::md)
+        //     return "**";
+        // else
+        //     return std::string();
     }
 
     static std::string s_listItem_(PrintHelpStyle helpStyle, BE be)
@@ -4538,9 +4606,6 @@ protected:
         if (level<1)
             level = 1;
 
-        if (level>5)
-            level = 5;
-
         // Wiki
         // ====== Headline Level 1 ======
         // ===== Headline Level 2 =====
@@ -4555,20 +4620,32 @@ protected:
         // ### Headline Level 3
 
         if (helpStyle==PrintHelpStyle::wiki)
+        {
+            if (level>5)
+                level = 5;
+
             return be==BE::begin
                  ? std::string(6-level+1, '=') + " "
                  : " " + std::string(6-level+1, '=')
                  ;
+        }
         else if (helpStyle==PrintHelpStyle::md)
+        {
+            if (level>6)
+                level = 6;
+
             return be==BE::begin
                  ? std::string(level, '#') + " "
                  : std::string()
                  ;
+        }
         else
+        {
             return be==BE::begin
                  ? std::string()
                  : ":"
                  ;
+        }
     }
 
 
@@ -4580,9 +4657,22 @@ protected:
         return resStr + str + "\n" + s_code_(helpStyle, BE::end);
     };
 
+    static std::string s_inline_code(PrintHelpStyle helpStyle, const std::string &str)
+    {
+        auto resStr = s_inline_code_(helpStyle, BE::begin);
+        //bool needLf = !resStr.empty();
+        //return resStr + str + (needLf ? "\n" : "") + code(BE::end);
+        return resStr + str + s_inline_code_(helpStyle, BE::end);
+    };
+
     static std::string s_em(PrintHelpStyle helpStyle, const std::string &str)
     {
         return s_em_(helpStyle, BE::begin) + str + s_em_(helpStyle, BE::end);
+    }
+
+    static std::string s_tt(PrintHelpStyle helpStyle, const std::string &str)
+    {
+        return s_tt_(helpStyle, BE::begin) + str + s_em_(helpStyle, BE::end);
     }
 
     static std::string s_listItem(PrintHelpStyle helpStyle, const std::string &str)
@@ -4673,6 +4763,13 @@ public:
         auto isRichFormat = [&]()       { return s_isRichFormat(helpStyle); };
         auto isCompletionFormat = [&]() { return s_isCompletionFormat(helpStyle); };
 
+        auto plainIndent = [&](std::size_t ind) -> std::string
+        {
+            if (isRichFormat())
+                return std::string();
+            else
+                return std::string(ind*4, ' ');
+        };
 
         //--------------------------------------------------------------------------------------------------------------------
         if (isCompletionFormat())
@@ -4710,20 +4807,46 @@ public:
                 helpText.insert(pos, commandNames);
             }
 
-            return helpText; // pCol->makeText(textWidth, &argsNeedHelp);
+            return helpText;
         }
 
 
         //--------------------------------------------------------------------------------------------------------------------
-        auto code_     = [&](BE be) -> std::string                     { return s_code_(helpStyle, be); };
-        auto codeNext_ = [&](BE be) -> std::string                     { return s_codeNext_(helpStyle, be); };
-        auto em_       = [&](BE be) -> std::string                     { return s_em_(helpStyle, be); };
-        auto listItem_ = [&](BE be) -> std::string                     { return s_listItem_(helpStyle, be); };
-        auto heading_  = [&](BE be, std::size_t level) -> std::string  { return s_heading_(helpStyle, be, level); };
-        auto code      = [&](const std::string &str) -> std::string    { return s_code(helpStyle, str); };
-        auto em        = [&](const std::string &str) -> std::string    { return s_em(helpStyle, str); };
-        auto listItem  = [&](const std::string &str) -> std::string    { return s_listItem(helpStyle, str); };
-        auto heading   = [&](const std::string &str, std::size_t level) -> std::string { return s_heading(helpStyle, str, level); };
+        auto code_          = [&](BE be) -> std::string                     { return s_code_(helpStyle, be); };
+        auto inline_code_   = [&](BE be) -> std::string                     { return s_inline_code_(helpStyle, be); };
+        auto codeNext_      = [&](BE be) -> std::string                     { return s_codeNext_(helpStyle, be); };
+        auto em_            = [&](BE be) -> std::string                     { return s_em_(helpStyle, be); };
+        auto tt_            = [&](BE be) -> std::string                     { return s_tt_(helpStyle, be); };
+        auto listItem_      = [&](BE be) -> std::string                     { return s_listItem_(helpStyle, be); };
+        auto heading_       = [&](BE be, std::size_t level) -> std::string  { return s_heading_(helpStyle, be, level); };
+        auto code           = [&](const std::string &str) -> std::string    { return s_code(helpStyle, str); };
+        auto inline_code    = [&](const std::string &str) -> std::string    { return s_inline_code(helpStyle, str); };
+        auto em             = [&](const std::string &str) -> std::string    { return s_em(helpStyle, str); };
+        auto tt             = [&](const std::string &str) -> std::string    { return s_tt(helpStyle, str); };
+        auto listItem       = [&](const std::string &str) -> std::string    { return s_listItem(helpStyle, str); };
+        auto heading        = [&](const std::string &str, std::size_t level) -> std::string { return s_heading(helpStyle, str, level); };
+
+
+        auto formatParas = [&](const std::string &paras, std::size_t indend)
+        {
+            auto w = textWidth;
+            if (w>indend)
+                w -= indend;
+
+            if (w<32)
+                w = 32;
+
+            auto formattedParas = umba::text_utils::formatTextParas( paras, w, umba::text_utils::TextAlignment::left );
+
+            if (!isRichFormat())
+            {
+                formattedParas = umba::text_utils::textAddIndent(formattedParas, std::string(indend, ' '));
+            }
+
+            return formattedParas;
+        };
+
+
 
         //--------------------------------------------------------------------------------------------------------------------
         auto printHelpOnHelp = [&]()
@@ -4745,113 +4868,218 @@ public:
 
 
 
-        if (commandSequence.empty())
+        if (commandSequence.empty() && !argsNeedHelp.empty())
+            return pCol->makeText( textWidth, &argsNeedHelp );
+
+
+        //if (commandSequence.empty() && !isRichFormat())
+            oss << "Usage:\n\n";
+
+        if (commandSequence.empty()) // выводим глобальную usage info если не задано подкоманд
         {
-            // Выводим полную справку
-
-            if (!argsNeedHelp.empty())
-                return pCol->makeText( textWidth, &argsNeedHelp );
-
-            #if 1
-            if (!s_isRichFormat(helpStyle))
-                oss << "Usage:\n\n";
-
+            auto usageString = commandInfo.usageInfo;
+            if (usageString.empty())
             {
-                auto usageString = commandInfo.usageInfo;
-                if (usageString.empty())
+                if (commandInfo.subCommands.empty())
                 {
-                    if (commandInfo.subCommands.empty())
-                    {
-                        if (globalAllowedOptions.empty())
-                            usageString = "[PARAMETERS...]";
-                        else
-                            usageString = "[OPTIONS...] [PARAMETERS...]";
-                    }
-                    else // Есть подкоманды
-                    {
-                        if (!globalAllowedOptions.empty())
-                            usageString = "[GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
-                        else
-                            usageString = "COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
-                    }
+                    if (globalAllowedOptions.empty())
+                        usageString = "[PARAMETERS...]";
+                    else
+                        usageString = "[OPTIONS...] [PARAMETERS...]";
                 }
-
-                oss << code(exeName + " " + usageString) << "\n";
+                else // Есть подкоманды
+                {
+                    if (!globalAllowedOptions.empty())
+                        usageString = "[GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
+                    else
+                        usageString = "COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]";
+                }
             }
 
+            oss << code(exeName + " " + usageString) << "\n";
+        }
+
+        if (commandSequence.empty()) // выводим справку по справке только если у нас не задано подкоманд
+        {
             printHelpOnHelp();
-            #endif
+            oss << "\n";
+        }
 
-            if (!commandInfo.subCommands.empty())
+        if (!commandInfo.subCommands.empty())
+        {
+            
+            if (commandSequence.empty() || collectedHelpInfo.size()>1)
             {
-                // У нас не пусты подкоманды
-
-                // Выводим summary по командам
-                // Выводим глобальные опции
-                // Выводим бриф по командам - использование и бриф описание, и список опций без объяснений
-                // После этого выводим все опции подряд
-
-                oss << "\n";
-
-                if (!collectedHelpInfo.empty())
+                // Выводим summary по командам, если у нас есть набор подкоманд (больше одной), по которым надо вывести справку
+                if (commandSequence.empty())
                 {
-                    oss << s_heading(helpStyle, "Commands Summary", 2); // << "\n";
+                    oss << heading("Commands Summary", 2); // << "\n";
                     oss << "\n";
-
-                    // std::vector<CommandHelpInfo> collectedHelpInfo = collectCommandHelpInfo();
-
-                    oss << code_(BE::begin);
-
-                    //for(auto &&cmdInfo : collectedHelpInfo)
-
-                    for(auto it=collectedHelpInfo.begin(); it!=collectedHelpInfo.end(); ++it)
-                    {
-                        auto fullCmd = exeName + " ";
-                        if (!globalAllowedOptions.empty())
-                            fullCmd += "[GLOBAL_OPTIONS] ";
-                        fullCmd += it->commandName;
-                        //if (it->allowedOptions.empty())
-                        if (!it->usageInfo.empty())
-                        {
-                            fullCmd += " ";
-                            fullCmd += it->usageInfo;
-                        }
-
-                        // if (it==collectedHelpInfo.begin())
-                        //     oss << code_(BE::begin);
-                        // else
-                        //     oss << codeNext_(BE::begin);
-
-                        if (it!=collectedHelpInfo.begin())
-                            oss << codeNext_(BE::begin);
-
-                        oss << fullCmd;
-                        oss << codeNext_(BE::end);
-                    }
-
-                    oss << code_(BE::end);
-
                 }
 
-                oss << "\n";
+                // std::vector<CommandHelpInfo> collectedHelpInfo = collectCommandHelpInfo();
 
-                oss << s_heading(helpStyle, "Global options", 2); // << "\n";
+                oss << code_(BE::begin);
+                for(auto it=collectedHelpInfo.begin(); it!=collectedHelpInfo.end(); ++it)
+                {
+                    auto fullCmd = it->makeUsageString(exeName, !globalAllowedOptions.empty());
+
+                    if (it!=collectedHelpInfo.begin())
+                        oss << codeNext_(BE::begin);
+                    oss << fullCmd;
+                    oss << codeNext_(BE::end);
+                }
+                oss << code_(BE::end);
+
+                oss << "\n";
+            }
+
+
+            if (commandSequence.empty() && !globalAllowedOptions.empty())
+            {
+                // Выводим глобальные опции, если у нас нет подкоманд, по которым требуется справка
+                oss << "\n";
+                oss << heading("Global options", 2); // << "\n";
                 // oss << "\n"; // тут не нужно
                 oss << pCol->makeText( textWidth, &globalAllowedOptions ); // выводим справку по глобальным опциям
-
-
-
-
-
-                // pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
-
-// const std::set<std::string>  &argsNeedHelp
+                oss << "\n";
+                oss << "\n";
+                //oss << "\n";
             }
 
-            // heading(, 2)
+
+            if (commandSequence.empty() || collectedHelpInfo.size()>1)
+            {
+                //if (s_isRichFormat(helpStyle)) // Требует отдельного раздела. Или нет?
+                    oss << heading("Commands", 2) << "\n";
+                // oss << "\n";
+            }
 
 
-        }
+            for(auto it=collectedHelpInfo.begin(); it!=collectedHelpInfo.end(); ++it)
+            {
+                if (commandSequence.empty() || collectedHelpInfo.size()>1)
+                    oss << heading("'" + it->commandName + "' command", 3) << "\n";
+
+                static const std::size_t sz24 = 16;
+
+                std::string strUsage;
+
+                oss << code_(BE::begin);
+                    // oss << codeNext_(BE::begin);
+                    strUsage = it->makeUsageString(exeName, !globalAllowedOptions.empty());
+                    oss << strUsage;
+                oss << codeNext_(BE::end);
+
+                if (commandSequence.empty())
+                {
+                    oss << codeNext_(BE::begin);
+                        strUsage = it->makeCommandHelpCommand(exeName);
+                        // oss << plainIndent(1) << strUsage;
+                        oss << strUsage;
+                    oss << codeNext_(BE::end);
+                }
+                oss << code_(BE::end);
+
+                oss << "\n";
+
+
+                std::size_t infoIndendCommon = 4;
+
+                std::size_t infoIndend = 0;
+                if (collectedHelpInfo.size()>1)
+                    infoIndend = 1;
+
+                if (it->brief.empty() || it->description.empty())
+                {
+                    infoIndend = 0;
+                    if (collectedHelpInfo.size()<2)
+                        infoIndendCommon = 0;
+                }
+
+
+                if (!it->brief.empty())
+                {
+                    if (!commandSequence.empty())
+                    {
+                        if (!it->brief.empty() && !it->description.empty())
+                            oss << plainIndent(infoIndend) << heading("Brief description", 6) << "\n";
+                    }
+                    oss << formatParas(it->brief, 4*infoIndend+infoIndendCommon) << "\n";
+                    oss << "\n";
+                }
+
+                if (!commandSequence.empty())
+                {
+                    if (!it->description.empty())
+                    {
+                        if (!it->brief.empty() && !it->description.empty())
+                            oss << plainIndent(infoIndend) << heading("Detailed description", 6) << "\n";
+                        oss << formatParas(it->description, 4*infoIndend+infoIndendCommon) << "\n";
+                        oss << "\n";
+                    }
+                }
+
+                
+                auto commandOptions = std::set<std::string>(it->allowedOptions.begin(), it->allowedOptions.end());
+
+                //const std::set<std::string>  &argsNeedHelp
+
+                if (commandSequence.empty())
+                {
+                    // У нас вывод по всем командам
+
+                    if (!commandOptions.empty())
+                    {
+                        oss << plainIndent(1) << heading("Command options", 6) << "\n";
+                        for(const auto &optName : commandOptions)
+                        {
+                            auto optFullName = std::string(optName.size()>1 ? "--" : "-") + optName;
+                            auto fillingSize = optFullName.size()>sz24 ? std::size_t(0) : sz24 - optFullName.size();
+                            auto fillStr = std::string(fillingSize, ' ');
+
+                            // !!! Пока не даём подсказку по вызову хелпа конкретной опции конкретной команды,
+                            // потому что этот механихм пока не работает, и всегда выводится информация по всем опциям команды
+                            auto opInfoFullStr = optFullName; // + "    " + fillStr + it->makeCommandOptionHelpCommand(exeName, optFullName);
+
+                            auto optPrintText = listItem(inline_code(opInfoFullStr));
+
+                            //!!! Нужна склейка двух inline блоков кода
+                            // auto optPrintText = listItem(inline_code(optFullName) + tt("    " + fillStr) + it->makeCommandOptionHelpCommand(exeName, optFullName) );
+                            oss << (isRichFormat() ? "" : "    ") << optPrintText; // << "\n";
+                        }
+
+                        oss << "\n";
+                    }
+                }
+                else
+                {
+                    // !!! Для конкретной команды у нас почему-то опции не собираются
+                    // Пока и так сойдёт, на потом надо разобраться
+
+                    auto printHelpForOptions = argsNeedHelp;   // Хотим выводить инфу только по тем опциям, которые явно указаны в командой строке
+                    if (printHelpForOptions.empty())           // Но нам явно не указали, какие опции интересуют
+                        printHelpForOptions = commandOptions;  // Значит, выводим инфу по всем опциям данной команды
+
+                    if (collectedHelpInfo.size()>1)
+                        printHelpForOptions.clear();
+
+                    if (!printHelpForOptions.empty())
+                    {
+                        //if (printHelpForOptions.size()>1 || collectedHelpInfo.size()>1)
+                        if (printHelpForOptions.size()>1)
+                            oss << plainIndent(0) << heading("Command options", 6); // << "\n";
+
+                        oss << pCol->makeText( textWidth, &printHelpForOptions );
+                        oss << "\n";
+                    }
+
+                }
+
+            } // for(auto it=collectedHelpInfo.begin(); it!=collectedHelpInfo.end(); ++it)
+
+        } // if (!commandInfo.subCommands.empty())
+
 
 
     // struct CommandHelpInfo
@@ -4888,65 +5116,11 @@ public:
 // };
 
 
-            // std::string descr = umba::text_utils::textAppendDot(optInfo.description);
-            // //if (!descr.empty() && descr.back()!='.')
-            // //    descr.append(1, '.');
-            //  
-            // std::string descExtra = descExtraOss.str();
-            // if (!descExtra.empty())
-            //     descExtra = std::string("\n") + descExtra;
-            //  
-            // descr.append(descExtra);
-            // descr = umba::text_utils::textAppendDot(descr);
-            //  
-            // if (style==PrintHelpStyle::wiki || style==PrintHelpStyle::md)
-            // {
-            //     std::string tmp = descr;
-            //     umba::string_plus::trim(tmp);
-            //     if (!tmp.empty() && tmp.back()!='.')
-            //         tmp.append(1, '.');
-            //     oss<<" - " <<tmp;
-            // }
-            // else
-            // {
-            //     oss<<"\n";
-            //     oss<< umba::text_utils::textAddIndent(umba::text_utils::formatTextParas( descr, width, umba::text_utils::TextAlignment::left ), "    " );
-            // }
-
-
-
         return oss.str();
 
-#if 0
-        if (argsNeedHelp.empty())
-        {
-            // return pCol->makeText( textWidth, &argsNeedHelp ); // выводим справку по конкретным опциям
-            // Или таки надо по команде вывести справку?
-
-            // Выводим полную справку по команде, и полную справку по командам - 
-            // только выкидываем те опции, которые не принадлежат команде - их надо пометить командой, к которой они принадлежат, 
-            // или строкой "global option"
-
-        }
-
-
-        if (commandInfo.subCommands.empty())
-        {
-            // У нас задана подкоманда
-        
-        }
-
-        if (commandSequence.empty())
-        {
-        }
-
-
-        return std::string();
-#endif
 
     }
 
-// EXE [GLOBAL_OPTIONS...] COMMAND [SUBCOMMAND...] [COMMAND_OPTIONS...] [PARAMETERS...]  - главная строка, прошита (или берём из корня, если там задано)
 
 }; // struct CommandSequenceController
 
