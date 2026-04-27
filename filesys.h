@@ -908,28 +908,28 @@ bool writeFile( const char *filename, const DataType *pData, size_t dataSize, bo
 
 //----------------------------------------------------------------------------
 template<typename DataType> inline
-bool writeFile( const std::wstring &filename, const std::vector<DataType> &filedata, bool bOverwrite)
+bool writeFile( const std::wstring &filename, const std::vector<DataType> &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
 template<typename DataType> inline
-bool writeFile( const std::string &filename, const std::vector<DataType> &filedata, bool bOverwrite)
+bool writeFile( const std::string &filename, const std::vector<DataType> &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
 template<typename DataType> inline
-bool writeFile( const wchar_t *filename, const std::vector<DataType> &filedata, bool bOverwrite)
+bool writeFile( const wchar_t *filename, const std::vector<DataType> &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
 template<typename DataType> inline
-bool writeFile( const char *filename, const std::vector<DataType> &filedata, bool bOverwrite)
+bool writeFile( const char *filename, const std::vector<DataType> &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
@@ -939,25 +939,25 @@ bool writeFile( const char *filename, const std::vector<DataType> &filedata, boo
 
 
 //----------------------------------------------------------------------------
-inline bool writeFile( const std::wstring &filename, const std::string &filedata, bool bOverwrite)
+inline bool writeFile( const std::wstring &filename, const std::string &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
-inline bool writeFile( const std::string &filename, const std::string &filedata, bool bOverwrite)
+inline bool writeFile( const std::string &filename, const std::string &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
-inline bool writeFile( const wchar_t *filename, const std::string &filedata, bool bOverwrite)
+inline bool writeFile( const wchar_t *filename, const std::string &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
 
 //------------------------------
-inline bool writeFile( const char *filename, const std::string &filedata, bool bOverwrite)
+inline bool writeFile( const char *filename, const std::string &filedata, bool bOverwrite = false)
 {
     return fsysapi::writeFile(impl_helpers::encodeToNative(filename), filedata, bOverwrite);
 }
