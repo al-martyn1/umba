@@ -4024,6 +4024,11 @@ public:
         return findCommand().getRawMode();
     }
 
+    bool empty() const // true когда нет накопленных команд
+    {
+        return commandSequence.empty();
+    }
+
     //--------------------------------------------------
 
 
