@@ -567,27 +567,29 @@ std::vector<std::string> prepareArgs( int argc, char **argv )
             continue;
         }
 
+        // Пока просто отключили возможность ввода коротких опций пакетом
+        resVec.push_back(argStr);
 
-        // Here we got an arg in form '-X...'
-        std::string::size_type pos = 1, sz = argStr.size(); // sz 2 or more
-        for(; pos!=sz; ++pos)
-        {
-            auto nextPos = pos+1;
-            if (nextPos!=sz && (argStr[nextPos]=='=' || argStr[nextPos]==':'))
-            {
-                resVec.push_back(std::string("-") + std::string( argStr, pos ));
-                break;
-            }
-            else if (nextPos!=sz && (argStr[nextPos]=='+' || argStr[nextPos]=='-'))
-            {
-                resVec.push_back(std::string("-") + std::string( argStr, pos, 2 ));
-                pos = nextPos;
-            }
-            else
-            {
-                resVec.push_back( std::string("-") + std::string( argStr, pos, 1 ));
-            }
-        }
+        // // Here we got an arg in form '-X...'
+        // std::string::size_type pos = 1, sz = argStr.size(); // sz 2 or more
+        // for(; pos!=sz; ++pos)
+        // {
+        //     auto nextPos = pos+1;
+        //     if (nextPos!=sz && (argStr[nextPos]=='=' || argStr[nextPos]==':'))
+        //     {
+        //         resVec.push_back(std::string("-") + std::string( argStr, pos ));
+        //         break;
+        //     }
+        //     else if (nextPos!=sz && (argStr[nextPos]=='+' || argStr[nextPos]=='-'))
+        //     {
+        //         resVec.push_back(std::string("-") + std::string( argStr, pos, 2 ));
+        //         pos = nextPos;
+        //     }
+        //     else
+        //     {
+        //         resVec.push_back( std::string("-") + std::string( argStr, pos, 1 ));
+        //     }
+        // }
     }
 
     return resVec;
