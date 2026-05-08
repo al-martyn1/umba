@@ -1050,12 +1050,27 @@ StringType appendExtention( const StringType &n, const StringType &e, typename S
 template<typename StringType> inline
 StringType getPath( const StringType &s )
 {
-    //find_if( s.rbegin(), s.rend(), isPathSep<typename StringType::value_type>);
+    auto isPathOrDriveSep = [](typename StringType::value_type ch) -> bool
+    {
+        if (isPathSep(ch))
+            return true;
 
-    return stripLastPathSepCopy( StringType( s.begin()
-                                           , find_if( s.rbegin(), s.rend(), isPathSep<typename StringType::value_type>).base()
-                                           )
-                               );
+#if defined(WIN32) || defined(_WIN32)
+        if (ch==(typename StringType::value_type)':')
+            return true;
+#endif
+
+        return false;
+    };
+
+
+    const auto revEnd = s.rend();
+    auto pathSepRevIt = find_if( s.rbegin(), s.rend(), isPathOrDriveSep); // .base()
+
+    while(pathSepRevIt!=revEnd && isPathSep(*pathSepRevIt))
+        ++pathSepRevIt;
+
+    return StringType( s.begin(), pathSepRevIt.base());
 }
 
 inline std::string  getPath( const char    *p ) { return getPath<std::string> ( p ); } //!< Извлекает путь из имени
