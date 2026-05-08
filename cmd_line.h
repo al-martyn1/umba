@@ -2975,6 +2975,12 @@ struct ArgsParser
     std::stack<StringType>                optFiles;
 
 
+
+    const OptionsCollector* getOptinsCollectorPtr() const
+    {
+        return &optionsCollector;
+    }
+
     StringType getAppRoot() const
     {
         return programLocationInfo.getAppRoot();
