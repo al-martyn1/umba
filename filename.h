@@ -104,7 +104,7 @@ inline CharType getNativePathListSep( )
 // Именование файлов, путей и пространства имён - https://learn.microsoft.com/ru-ru/windows/win32/fileio/naming-a-file
 // Ограничение максимальной длины пути - https://learn.microsoft.com/ru-ru/windows/win32/fileio/maximum-file-path-limitation?tabs=registry
 
-//! Возвращает UNC префикс
+//! Возвращает UNC префикс (на самом деле правильно называть этот префикс Extended-Length Path или Win32 File Namespace)
 template<typename StringType> inline
 StringType getNativeUncPrefix()
 {
@@ -176,8 +176,30 @@ StringType addNativePrefixes(const StringType &fileName, const NativePrefixFlags
 
 
 //-----------------------------------------------------------------------------
-template<typename CharType> inline bool isExtSep ( CharType ch ) { return ch==(CharType)'.'; }                        //!< Возвращает true, если символ - разделитель расширения
-template<typename CharType> inline bool isPathSep( CharType ch ) { return ch==(CharType)'/' || ch==(CharType)'\\'; }  //!< Возвращает true, если символ - разделитель пути
+template<typename CharType> inline bool isExtSep  ( CharType ch ) { return ch==(CharType)'.'; }                       //!< Возвращает true, если символ - разделитель расширения
+template<typename CharType> inline bool isPathSep ( CharType ch ) { return ch==(CharType)'/' || ch==(CharType)'\\'; } //!< Возвращает true, если символ - разделитель пути
+template<typename CharType> inline bool isDriveSep( CharType ch )                                                     //!< Возвращает true, если символ - разделитель буквы диска
+{
+#if defined(WIN32) || defined(_WIN32)
+    if (ch==(CharType)':')
+        return true;
+#endif
+
+    return false;
+}
+
+template<typename CharType> inline bool isPathOrDriveSep( CharType ch ) { return isPathSep(ch) || isDriveSep(ch); }   //!< Возвращает true, если символ - разделитель пути или буквы диска 
+
+template<typename CharType> inline bool isAdsSep( CharType ch )                                                     //!< Возвращает true, если символ - разделитель Alternate Data Streams, ADS
+{
+#if defined(WIN32) || defined(_WIN32)
+    if (ch==(CharType)':')
+        return true;
+#endif
+
+    return false;
+}
+
 
 //-----------------------------------------------------------------------------
 template<typename StringType> inline bool hasLastPathSep( StringType &p )   { return (p.empty() || !isPathSep(p[p.size()-1])) ? false : true; }                                              //!< Возвращает true, если последний символ - разделитель пути
@@ -1046,67 +1068,408 @@ StringType appendExtention( const StringType &n, const StringType &e, typename S
 //inline CharType getNativeExtSep( )
 
 //-----------------------------------------------------------------------------
+
+
+
+//-----------------------------------------------------------------------------
+enum class PathPrefixType : unsigned
+{
+    unknown, undefined      = (unsigned)-1,
+
+    none                    = 0,
+
+    flagWin32               = 0x0100, // Win32 specific prefix
+    flagNetwork             = 0x0200, // признак сетевого пути
+
+    win32FileNamespace      = 0x0101, // \\?\ (Win32 File Namespace), Extended-Length Path Prefix - применяется для обхода стандартного ограничения Windows в 260 символов
+    win32DeviceNamespace    = 0x0102, // \\.\ (Win32 Device Namespace) - Используется для прямого доступа к физическим устройствам (например, COM1 или PhysicalDrive0) в обход файловой системы
+
+    networkPath             = 0x0203, // сетевой путь "//" ("\\\\")
+    uncNetPath              = 0x0304, // сетевой путь в Windows вида \\?\UNC\server\share (flagWin32|flagNetwork)
+
+};
+
+//-----------------------------------------------------------------------------
+inline
+bool isPathPrefixTypeWin32(PathPrefixType ppt)
+{
+    return ((unsigned)ppt & (unsigned)PathPrefixType::flagWin32) != 0;
+}
+
+//-----------------------------------------------------------------------------
+inline
+bool isPathPrefixTypeNetwork(PathPrefixType ppt)
+{
+    return ((unsigned)ppt & (unsigned)PathPrefixType::flagNetwork) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+
+
+//-----------------------------------------------------------------------------
+template<typename StringType> inline
+void findAllFullPathComponentSeparators( const StringType &p
+                                       , typename StringType::size_type *pDriveSepPos       = 0 // Возвращается первый разделитель буквы диска
+                                       , typename StringType::size_type *pPathSepPos        = 0 // Возвращается последний разделитель пути
+                                       , typename StringType::size_type *pExtSepPos         = 0 // Возвращается последний разделитель расширения (только в последнем компоненте пути)
+                                       , typename StringType::size_type *pAdsSepPos         = 0 // Возвращается разделитель ADS
+                                       , typename StringType::size_type *pPathStartPos      = 0 // Возвращается позиция начала пути, перед ней либо сетевой префикс с именем сервера и шары, либо специальный виндовый префикс
+                                       , PathPrefixType                 *pPathPrefixType    = 0 // Возвращается тип префикса пути, если таковой есть
+                                       )
+{
+    // Разделитель пути - поддерживается как '\', так и '/' - нет разницы, функция isPathSep
+    // Разделитель расширения - обычно это точка - Windows/Linux, функция isExtSep
+    // Разделитель диска - только Windows - двоеточие ':', функция isDriveSep
+    // Разделитель ads - только Windows - Alternate Data Streams, ADS - тоже двоеточие ':', функция isAdsSep
+
+    // Функции isAdsSep и isDriveSep могут возвращать true, если в системе есть понятие дисков и потоков ADS.
+    // Функция isPathSep детектирует разделитель пути как Windows, так и Linux. 
+    // isExtSep - реагирует на символ точка - это универсальный разделитель расширения.
+
+    // Важно: имя файла, которое начинается с точки мы считаем, что это имя имеет только расширение, а само имя пустое
+    // Имена вида ".tar.gz": это пустое имя файла с двойным расширением, при первом получении имени файла без расширения
+    // будет возвращено ".tar", при втором получении имени файла без расширения будет возвращена пустая строка.
+
+    // Имя вида "C:file.txt", вообще говоря, некорректно - отсутствует разделитель пути после двоеточия,
+    // но мы хотим его корректно обрабатывать как диск "C:" и файл "file.txt" без пути.
+
+    // StringType getNativeUncPrefix()         // Возвращает под Windows "\\\\?\\", иначе - пустую строку (на самом деле правильно называть этот префикс Extended-Length Path или Win32 File Namespace)
+    // StringType getNativeNetworkUncPrefix()  // Возвращает сетевой UNC префикс - под Windows "\\\\?\\UNC\\", иначе - пустую строку
+    // StringType getNativeNetworkPathPrefix() // Возвращает сетевой префикс - "\\\\" под Windows, иначе "//" 
+
+    // Пролезная ссылка: The Definitive Guide on Win32 to NT Path Conversion - https://projectzero.google/2016/02/the-definitive-guide-on-win32-to-nt.html
+
+    // AI review - https://chat.deepseek.com/share/pu04zk455gw6miz84x
+
+    using CharType = typename StringType::value_type;
+    using SizeType = typename StringType::size_type;
+
+    SizeType driveSepPos = p.npos;
+    SizeType pathSepPos  = p.npos;
+    SizeType extSepPos   = p.npos;
+    SizeType adsSepPos   = p.npos;
+
+    SizeType pathStartPos = 0;
+
+    SizeType pos = 0;
+
+    PathPrefixType pathPrefixType = PathPrefixType::none;
+
+
+    // Копирование строки с нормализацией разделителя пути и регистра символов
+    // выглядит более предпочтительным, чем при каждом сравнении учитывать регистр символов
+    // разделители пути
+    auto simpleConvertToCompatName = [](StringType path)
+    {
+        for(auto &ch : path)
+        {
+            if (ch==(CharType)'\\')
+            {
+                ch = (CharType)'/';
+            }
+        }
+
+        // string::toupper меняет регистр символов (только латинских) inplace.
+        // Тут всё корректно, даже если локали не поддерживаются - нас интересуют только возможные префиксы, а они только в пределах базовой ASCII таблицы.
+        // Даже если toupper накосячит с кодировками, в префиксах используется только латиница, и всё будет нормально
+        // В дальнейшем же мы используем оригинальную строку
+        string::toupper(path); 
+
+        return path;
+    };
+
+    // bool isNetworkPath   = false;
+    // bool isSpecialPrefix = false;
+
+    // flagWin32               = 0x0100, // Win32 specific prefix
+    // flagNetwork             = 0x0200, // признак сетевого пути
+    //  
+    // win32FileNamespace      = 0x0101, // \\?\ (Win32 File Namespace), Extended-Length Path Prefix - применяется для обхода стандартного ограничения Windows в 260 символов
+    // win32DeviceNamespace    = 0x0102, // \\.\ (Win32 Device Namespace) - Используется для прямого доступа к физическим устройствам (например, COM1 или PhysicalDrive0) в обход файловой системы
+    //  
+    // networkPath             = 0x0203, // сетевой путь "//" ("\\\\")
+    // uncNetPath              = 0x0304, // сетевой путь в Windows вида \\?\UNC\server\share (flagWin32|flagNetwork)
+
+
+    {
+        static const auto uncPrefix         = simpleConvertToCompatName(getNativeUncPrefix<StringType>());          // средний             под Windows "\\\\?\\"
+        static const auto networkUncPrefix  = simpleConvertToCompatName(getNativeNetworkUncPrefix<StringType>());   // самый длинный       под Windows "\\\\?\\UNC\\"
+        static const auto networkPrefix     = simpleConvertToCompatName(getNativeNetworkPathPrefix<StringType>());  // самый короткий      "\\\\" под Windows, иначе "//"
+
+#if defined(WIN32) || defined(_WIN32)
+        static const auto devicePrefix      = simpleConvertToCompatName(string::make_string<StringType>("\\\\.\\")); // такой же по длине, как uncPrefix, под Windows "\\\\.\\"
+        // static const auto uncSimple         = simpleConvertToCompatName(string::make_string<StringType>("UNC\\"));
+#else
+        static const auto devicePrefix      = StringType();
+        // static const auto uncSimple         = StringType();
+#endif
+
+        auto pathTmp = simpleConvertToCompatName(p);
+        SizeType specialPrefixLen = 0;
+
+        if (!networkUncPrefix.empty() && string::starts_with(pathTmp, networkUncPrefix)) // "\\\\?\\UNC\\"
+        {
+            specialPrefixLen = networkUncPrefix.size();
+            pathPrefixType   = PathPrefixType::uncNetPath;
+        }
+
+        else if (!uncPrefix.empty() && string::starts_with(pathTmp, uncPrefix)) // "\\\\?\\"
+        {
+            specialPrefixLen = uncPrefix.size();
+            pathPrefixType   = PathPrefixType::win32FileNamespace;
+        }
+
+        else if (!devicePrefix.empty() && string::starts_with(pathTmp, devicePrefix)) // "\\\\.\\"
+        {
+            specialPrefixLen = devicePrefix.size();
+            pathPrefixType   = PathPrefixType::win32DeviceNamespace;
+
+            // Вроде бы это был загон deepseek'а, реально такой фичи не существует
+            // if (!uncSimple.empty() && string::starts_with(StringType(pathTmp, specialPrefixLen, pathTmp.npos), uncSimple))
+            // {
+            //     // специальный видновый префикс для сетевой шары
+            //     specialPrefixLen += uncSimple.size();
+            //     isNetworkPath = true;
+            // }
+        }
+
+        else if (!networkPrefix.empty() && string::starts_with(pathTmp, networkPrefix)) // "//"
+        {
+            specialPrefixLen = networkPrefix.size();
+            pathPrefixType   = PathPrefixType::networkPath;
+        }
+
+        if (specialPrefixLen!=0)
+        {
+            pathStartPos = specialPrefixLen;
+
+            if (isPathPrefixTypeNetwork(pathPrefixType))
+            {
+                // Пропускаем имя сервера
+                for(; pathStartPos!=p.size(); ++pathStartPos)
+                {
+                    if (isPathSep(p[pathStartPos]))
+                        break;
+                }
+
+                if (pathStartPos!=p.size())
+                    ++pathStartPos;
+                // else
+                //     isNetworkPath = false; // что-то непонятное - точно отсутствует имя шары в сетевом пути - но ничего не делаем, это всё равно сетевой путь, который указывает только на сервер
+
+                // Пропускаем имя шары
+                for(; pathStartPos!=p.size(); ++pathStartPos)
+                {
+                    if (isPathSep(p[pathStartPos]))
+                        break;
+                }
+
+                // IMPORTANT! Тут мы не пропускаем разделитель пути пусле имени шары - если после имени шары есть путь,
+                // то он будет выглядеть как абсолютный путь Linux или как абсолютный путь Windows для текущего диска.
+                // Если же пропускать этот разделитель, то путь (без сетевого или специального префикса) будет выглядеть, как относительный.
+
+            } // if (isNetPrefix)
+
+        } // if (specialPrefixLen!=0)
+
+        pos = pathStartPos;
+
+        if (pPathStartPos)
+           *pPathStartPos = pathStartPos;
+
+        // if (pIsNetworkPath)
+        //    *pIsNetworkPath = isNetworkPath;
+        //  
+        // if (pHasSpecialPrefix)
+        //    *pHasSpecialPrefix = isSpecialPrefix;
+
+        if (pPathPrefixType)
+           *pPathPrefixType = pathPrefixType;
+
+    }
+
+
+    bool hasOnlyAlphas = true; // флаг, сигнализирующий о том, то в имени пути до текущего момента встречались только латинские буквы
+    SizeType pathPartLen = 0;
+    SizeType pathComponentCount = 0;
+
+    for(; pos!=p.size(); ++pos)
+    {
+        auto ch = p[pos];
+
+        if (isPathSep(ch))
+        {
+            pathSepPos = pos;
+            // if (pathSepPosF==p.npos)
+            //     pathSepPosF = pos; // первый разделитель пути нашли
+
+            adsSepPos = p.npos; // сбрасываем ads разделитель - он не может быть до разделителя пути
+
+            extSepPos = p.npos; // сбрасываем разделитель расширения
+
+            hasOnlyAlphas = true; // восстанавливаем флаг для следующего компонента пути
+
+            pathPartLen = 0; // сбрасываем длину текущей части пути
+
+            ++pathComponentCount;
+
+            continue;
+        }
+
+        if (isExtSep(ch))
+        {
+            if (adsSepPos!=p.npos) // у нас уже есть ads разделитель
+            {
+                // Ничего не делаем - не детектим разделитель расширения в имени ads, только в имени файла
+            }
+            else // у нас нет ads - это обычное расширение имени файла
+            {
+                extSepPos = pos;
+            }
+
+            continue;
+        }
+
+        // Имя диска в системах с большим количеством дисков может быть не из одной латинской буквы, но это не точно.
+        // Я вроде видел двухбуквенные диски в реальном использовании, но не факт
+        // Пока ограничимся однобуквенными дисками
+        // Разделитель диска проверяем только в первом компоненте пути, до всех слешей. Это корректно будет работать как для пути без префиксов, 
+        // так и для пути с префиксом \\?\ в Windows
+        if (!isPathPrefixTypeNetwork(pathPrefixType) && pathComponentCount==0 && pathPartLen==1 && hasOnlyAlphas && driveSepPos==p.npos && isDriveSep(ch)) // заменяем только если этого символа ещё не было
+        {
+            driveSepPos = pos;
+        }
+
+        if (driveSepPos!=pos && adsSepPos==p.npos && isAdsSep(ch)) // Детектим только первый разделитель ADS и если разделитель диска не равен текущей позиции
+        {
+            adsSepPos = pos;
+        }
+
+        if (!((ch>='a' && ch<='z') || (ch>='A' && ch<='Z')))
+            hasOnlyAlphas = false;
+
+        ++pathPartLen;
+
+    } // for
+
+    // ads мы сбрасываем при обнаружении разделителя пути
+    if (adsSepPos!=p.npos && adsSepPos==driveSepPos) // наден adsSep
+    {
+        // найден и driveSep и adsSep, и они равны
+        // это может быть adsSep - но тогда путь без диска - сетевой или относительный
+        if (extSepPos!=p.npos && extSepPos<adsSepPos)
+            driveSepPos = p.npos; // если у нас есть разделитель расширения, и он идёт раньше ads разделителя, то это точно не разделитель диска - сбрасываем разделитель диска
+        else 
+            adsSepPos = p.npos; // разделителя расширения нет, или разделитель расширения позже ads разделителя, то это не ads разделитель, а разделитель диска - сбрасываем ads
+    }
+
+    // if (pathSepPos==p.npos && pathStartPos!=0)
+    //     pathSepPos = pathStartPos;
+
+    if (pDriveSepPos) *pDriveSepPos = driveSepPos;
+    if (pPathSepPos ) *pPathSepPos  = pathSepPos ;
+    if (pExtSepPos  ) *pExtSepPos   = extSepPos  ;
+    if (pAdsSepPos  ) *pAdsSepPos   = adsSepPos  ;
+}
+
+//-----------------------------------------------------------------------------
 //! Извлекает путь из имени без последнего разделителя пути
 template<typename StringType> inline
 StringType getPath( const StringType &s )
 {
-    auto isPathOrDriveSep = [](typename StringType::value_type ch) -> bool
+    typename StringType::size_type driveSepPos  = s.npos;
+    typename StringType::size_type pathSepPos   = s.npos;
+    //typename StringType::size_type pathStartPos = 0;
+
+    //findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos, 0, 0, &pathStartPos);
+    findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos);
+
+    if (pathSepPos!=s.npos)
     {
-        if (isPathSep(ch))
-            return true;
+        // Удаляем все хвостовые 
+        auto res = StringType(s, 0, pathSepPos);
+        while(!res.empty() && isPathSep(res[res.size()-1]))
+             res.erase(res.size()-1, 1);
+        return res;
+    }
 
-#if defined(WIN32) || defined(_WIN32)
-        if (ch==(typename StringType::value_type)':')
-            return true;
-#endif
+    if (driveSepPos!=s.npos)
+    {
+        return StringType(s, 0, driveSepPos+1);
+    }
 
-        return false;
-    };
+    return s;
 
-
-    const auto revEnd = s.rend();
-    auto pathSepRevIt = find_if( s.rbegin(), s.rend(), isPathOrDriveSep); // .base()
-
-    while(pathSepRevIt!=revEnd && isPathSep(*pathSepRevIt))
-        ++pathSepRevIt;
-
-    return StringType( s.begin(), pathSepRevIt.base());
 }
+
+// void findAllFullPathComponentSeparators( const StringType &p
+//                                        , typename StringType::size_type *pDriveSepPos       = 0 // Возвращается первый разделитель буквы диска
+//                                        , typename StringType::size_type *pPathSepPos        = 0 // Возвращается последний разделитель пути
+//                                        , typename StringType::size_type *pExtSepPos         = 0 // Возвращается последний разделитель расширения (только в последнем компоненте пути)
+//                                        , typename StringType::size_type *pAdsSepPos         = 0 // Возвращается разделитель ADS
+//                                        , typename StringType::size_type *pPathStartPos      = 0 // Возвращается позиция начала пути, перед ней либо сетевой префикс с именем сервера и шары, либо специальный виндовый префикс
+//                                        , PathPrefixType                 *pPathPrefixType    = 0 // Возвращается тип префикса пути, если таковой есть
+//                                        )
+
 
 inline std::string  getPath( const char    *p ) { return getPath<std::string> ( p ); } //!< Извлекает путь из имени
 inline std::wstring getPath( const wchar_t *p ) { return getPath<std::wstring>( p ); } //!< Извлекает путь из имени
 
-
 //-----------------------------------------------------------------------------
 //! Извлекает из полного пути имя файла + расширение
 template<typename StringType> inline
-StringType getFileName( const StringType &path )
+StringType getFileName( const StringType &s )
 {
-    auto lastPathSepIt = find_if( path.rbegin(), path.rend(), isPathSep<typename StringType::value_type>).base();
+    typename StringType::size_type driveSepPos  = s.npos;
+    typename StringType::size_type pathSepPos   = s.npos;
+    typename StringType::size_type adsSepPos    = s.npos;
+    typename StringType::size_type pathStartPos = s.npos;
 
-    if (lastPathSepIt==path.end()) // Разделитель пути не найден вообще
-        return path;
+    findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos, 0, &adsSepPos, &pathStartPos);
 
-    return StringType( lastPathSepIt, path.end() );
+    typename StringType::size_type startPos = 0;
+    //typename StringType::size_type len      = s.size();
+
+    if (pathSepPos!=s.npos)
+        startPos = pathSepPos+1;
+    else if (driveSepPos!=s.npos)
+        startPos = driveSepPos+1;
+
+    if (pathStartPos!=s.npos && startPos<pathStartPos)
+        startPos = pathStartPos;
+
+    typename StringType::size_type endPos = s.size();
+    if (adsSepPos != s.npos)
+        endPos = adsSepPos;
+
+    return StringType(s, startPos, endPos - startPos);
 }
 
 inline std::string  getFileName( const char    *p ) { return getFileName<std::string> ( p ); } //!< Извлекает из полного пути имя файла + расширение
 inline std::wstring getFileName( const wchar_t *p ) { return getFileName<std::wstring>( p ); } //!< Извлекает из полного пути имя файла + расширение
 
 //-----------------------------------------------------------------------------
-//! Извлекает из полного пути путь и  имя файла без расширения
+//! Извлекает из полного пути путь и имя файла без расширения
 template<typename StringType> inline
 StringType getPathFile( const StringType &path )
 {
-    auto lastPathSepRevIt = find_if( path.rbegin(), path.rend(), isPathSep<typename StringType::value_type>); // .base();
-    auto lastExtSepIt = find_if( path.rbegin(), lastPathSepRevIt, isExtSep<typename StringType::value_type>).base();
-    if (lastExtSepIt==lastPathSepRevIt.base())
-        lastExtSepIt = path.end();
+    typename StringType::size_type extSepPos    = path.npos;
+    typename StringType::size_type adsSepPos    = path.npos;
+    typename StringType::size_type pathStartPos = path.npos;
 
-    if (lastExtSepIt!=path.begin() && lastExtSepIt!=path.end())
-       --lastExtSepIt;
+    findAllFullPathComponentSeparators(path, 0, 0, &extSepPos, &adsSepPos, &pathStartPos);
 
-    return StringType(path.begin(), lastExtSepIt);
+    typename StringType::size_type endPos = path.size();
+    typename StringType::size_type startPos = 0;
+
+    if (adsSepPos != path.npos)
+        endPos = adsSepPos;
+
+    if (extSepPos!=path.npos)
+        endPos = extSepPos;
+
+    return StringType(path, 0, endPos - startPos);
 }
 
 inline std::string  getPathFile( const char    *p ) { return getPathFile<std::string> ( p ); } //!< Извлекает из полного пути имя файла + расширение
@@ -1117,28 +1480,22 @@ inline std::wstring getPathFile( const wchar_t *p ) { return getPathFile<std::ws
 template<typename StringType> inline
 StringType getFileExtention( const StringType &path )
 {
-    auto lastPathSepRevIt = find_if( path.rbegin(), path.rend(), isPathSep<typename StringType::value_type>); // .base();
+    typename StringType::size_type extSepPos   = path.npos;
+    typename StringType::size_type adsSepPos   = path.npos;
 
-    // if (lastPathSepRevIt!=path.rbegin()) // Разделитель пути найден - смещаемся за него
-    //    lastPathSepRevIt--;
+    findAllFullPathComponentSeparators(path, 0, 0, &extSepPos, &adsSepPos);
 
-    //typename StringType::const_reverse_iterator rLastPathSepIt = lastPathSepIt;
+    if (extSepPos==path.npos)
+        return StringType();
 
-    auto lastExtSepIt = find_if( path.rbegin(), lastPathSepRevIt, isExtSep<typename StringType::value_type>).base();
+    typename StringType::size_type startPos = extSepPos+1;
 
-    // if (lastExtSepIt!=path.end()) // Разделитель расширения найден - смещаемся за него
-    //     lastExtSepIt++;
+    if (adsSepPos==path.npos)
+        adsSepPos = path.size();
 
-    // if (lastPathSepIt==path.end())
-    //    lastPathSepIt = path.begin();
+    typename StringType::size_type len = adsSepPos - startPos;
 
-    // if (lastExtSepIt==path.end())
-    //     lastExtSepIt = path.end();
-
-    if (lastExtSepIt==lastPathSepRevIt.base())
-        lastExtSepIt = path.end();
-
-    return StringType( lastExtSepIt, path.end() );
+    return StringType(path, startPos, len);
 }
 
 //! Извлекает из имени расширение
@@ -1166,31 +1523,46 @@ inline std::wstring getExt( const wchar_t *p ) { return getFileExtention<std::ws
 
 
 //-----------------------------------------------------------------------------
+
+// void findAllFullPathComponentSeparators( const StringType &p
+//                                        , typename StringType::size_type *pDriveSepPos       = 0 // Возвращается первый разделитель буквы диска
+//                                        , typename StringType::size_type *pPathSepPos        = 0 // Возвращается последний разделитель пути
+//                                        , typename StringType::size_type *pExtSepPos         = 0 // Возвращается последний разделитель расширения (только в последнем компоненте пути)
+//                                        , typename StringType::size_type *pAdsSepPos         = 0 // Возвращается разделитель ADS
+
+
+
+
 //! Извлекает из имени имя файла без пути и расширения
 template<typename StringType> inline
 StringType getName( const StringType &path )
 {
-    auto lastPathSepRevIt = find_if( path.rbegin(), path.rend(), isPathSep<typename StringType::value_type>); // .base();
+    typename StringType::size_type driveSepPos  = path.npos;
+    typename StringType::size_type pathSepPos   = path.npos;
+    typename StringType::size_type extSepPos    = path.npos;
+    typename StringType::size_type adsSepPos    = path.npos;
+    typename StringType::size_type pathStartPos = path.npos;
 
-    // if (lastPathSepRevIt!=path.rbegin()) // Разделитель пути найден - смещаемся за него
-    //    lastPathSepRevIt--;
+    findAllFullPathComponentSeparators(path, &driveSepPos, &pathSepPos, &extSepPos, &adsSepPos, &pathStartPos);
 
-    auto lastExtSepIt = find_if( path.rbegin(), lastPathSepRevIt, isExtSep<typename StringType::value_type>).base();
+    typename StringType::size_type startPos = 0;
+    typename StringType::size_type endPos   = path.size();
 
-    // if (lastExtSepIt!=path.end()) // Разделитель расширения найден - смещаемся перед ним
-    //     lastExtSepIt--;
+    if (pathSepPos!=path.npos)
+        startPos = pathSepPos+1;
+    else if (driveSepPos!=path.npos)
+        startPos = driveSepPos+1;
 
-    auto lastPathSepIt = lastPathSepRevIt.base();
-    if (lastPathSepIt==path.end())
-       lastPathSepIt = path.begin();
+    if (pathStartPos!= path.npos && startPos<pathStartPos)
+        startPos = pathStartPos;
 
-    // if (lastExtSepIt==path.end())
-    //     lastExtSepIt = path.end();
+    if (adsSepPos != path.npos)
+        endPos = adsSepPos;
 
-    if (lastExtSepIt==lastPathSepIt)
-        lastExtSepIt = path.end();
-
-    return stripLastExtSepCopy(StringType( lastPathSepIt, lastExtSepIt ));
+    if (extSepPos != path.npos)
+        endPos = extSepPos;
+     
+    return StringType(path, startPos, endPos - startPos);
 }
 
 inline std::string  getName( const char    *p ) { return getName<std::string> ( p ); } //!< Извлекает из имени имя файла без пути и расширения
