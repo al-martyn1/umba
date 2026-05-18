@@ -17,16 +17,20 @@
 #include "enum_helpers.h"
 
 //
+#include <cstdint>
 #include <set>
 #include <unordered_set>
 
 #if defined(WIN32) || defined(_WIN32)
 
     #include <shellapi.h>
+    #include <processthreadsapi.h>
+
     #if defined(_MSC_VER)
         #pragma comment( lib, "Shell32" )
         // https://ru.stackoverflow.com/questions/15077/%D0%98%D1%81%D0%BF%D0%BE%D0%BB%D1%8C%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-pragma-comment
     #endif
+
     #include "win32_utils.h"
     #include "winconhelpers.h"
     //
@@ -34,14 +38,19 @@
     #include "internal/filesys.h"
     #include "filename.h"
 
+    //
+    #include <process.h>
+    #include <stdio.h>
+    #include <wchar.h>
+
 #else
 
     #include <errno.h>
     #include <string.h>
+    #include <unistd.h>
 
 #endif
 
-#include <process.h>
 #include <cerrno>
 
 
@@ -544,13 +553,13 @@ int callSystem(const std::string &cmd, std::string *pErrMsg=0, bool allocateCons
         {
             if (resVal==-1)
             {
-              #include "umba/warnings/push_disable_fn_or_var_unsafe.h"
-              *pErrMsg = std::string("Launch command failed: ") + std::strerror(errno);
-              #include "umba/warnings/pop.h"
+                #include "umba/warnings/push_disable_fn_or_var_unsafe.h"
+                *pErrMsg = std::string("Launch command failed: ") + std::strerror(errno);
+                #include "umba/warnings/pop.h"
             }
             else
             {
-               *pErrMsg = "Command result code: " + std::to_string(resVal);
+                *pErrMsg = "Command result code: " + std::to_string(resVal);
             }
         }
     }
@@ -563,6 +572,130 @@ inline
 int callSystem(const std::string &cmd, const std::vector<std::string> &cmdArgs, std::string *pErrMsg=0, bool allocateConsole=true)
 {
     return callSystem(makeSystemFunctionCommandString(cmd, cmdArgs), pErrMsg, allocateConsole);
+}
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+/*
+
+    Поиск исполняемых файлов.
+
+    where /R C:\ chrome.exe
+    dir /s C:\chrome.exe
+
+    https://chat.deepseek.com/share/bmqxjikfbbr1il3ejh
+
+    HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+    HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+
+
+*/
+
+
+//----------------------------------------------------------------------------
+enum class SpawnProcessFlags
+{
+    default_               = 0x00,
+
+    noUseExactExeName      = 0x00, // do lookup in PATH env var
+    useExactExeName        = 0x01, // no lookup in PATH env var
+
+    noArgsExeAlready       = 0x00,
+    argsExeAlready         = 0x02, // executable file name already added to cmdArgs
+
+};
+
+UMBA_ENUM_CLASS_IMPLEMENT_BIT_OPERATORS(SpawnProcessFlags)
+UMBA_ENUM_CLASS_IMPLEMENT_UNDERLYING_TYPE_BIT_OPERATORS(SpawnProcessFlags)
+UMBA_ENUM_CLASS_IMPLEMENT_UNDERLYING_TYPE_EQUAL_OPERATORS(SpawnProcessFlags)
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+//! Запускает процесс без ожидания, в отличие от callSystem. Также не используется никакой shell
+// Поиск производится в путях, переменные среды наследуются от текущего процесса
+// Возвращает PID процесса
+inline
+int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs, SpawnProcessFlags spawnProcessFlags=SpawnProcessFlags::default_, std::string *pErrMsg=0)
+{
+    // UMBA_ARG_USED(allocateConsole); // , bool allocateConsole=true
+
+    #if defined(WIN32) && defined(_WIN32)
+
+        // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/spawnvp-wspawnvp?view=msvc-170
+        // https://learn.microsoft.com/en-us/cpp/c-runtime-library/spawn-wspawn-functions?view=msvc-170
+        // _P_NOWAIT
+        std::vector<std::wstring> argsWide; argsWide.reserve(cmdArgs.size()+1);
+
+        if ((spawnProcessFlags&SpawnProcessFlags::argsExeAlready)==0)
+        {
+            argsWide.push_back(fromUtf8(cmd));
+        }
+
+        for(auto &&a : cmdArgs)
+        {
+            argsWide.push_back(fromUtf8(a));
+        }
+
+        std::vector<const wchar_t*> argv; argv.reserve(argsWide.size()+1);
+        for(const auto& wa : argsWide)
+        {
+            argv.push_back(wa.c_str());
+        }
+
+        argv.push_back(nullptr);
+
+        auto wCmd = fromUtf8(cmd);
+
+        const bool usePath = (spawnProcessFlags&SpawnProcessFlags::useExactExeName)==0;
+        auto pSpawnFn = usePath ? &_wspawnvp : &_wspawnv;
+
+        // Если системная пременная PATH содержит много путей, то данная функция обламывается, и возвращает EINVAL,
+        // что выглядит весьма непрозрачно, об этом надо просто знать
+
+        std::intptr_t processHandle = pSpawnFn( _P_NOWAIT // |_P_DETACH
+                                              , wCmd.c_str()
+                                              , &argv[0]
+                                              );
+        if (processHandle==-1)
+        {
+            if (pErrMsg)
+            {
+                #include "umba/warnings/push_disable_fn_or_var_unsafe.h"
+                *pErrMsg =  /* std::string("Launch command failed: ") +  */ std::strerror(errno);
+                #include "umba/warnings/pop.h"
+            }
+
+            return -1;
+        }
+
+        return 0;
+
+
+//         DWORD GetProcessId(
+//   [in] HANDLE Process
+// );
+
+    #else
+
+        // posix_spawn
+        // Standard C library (libc, -lc)
+        // #include <spawn.h> ?
+        // https://man7.org/linux/man-pages/man3/posix_spawn.3.html
+        // https://pubs.opengroup.org/onlinepubs/9799919799/functions/posix_spawn.html
+        // https://www.opennet.ru/man.shtml?topic=posix_spawn&category=3&russian=5
+        //
+        // !!! open O_CLOEXEC
+
+        // https://chat.deepseek.com/share/vdbbm4xb6b8u4v6j9q
+
+    #endif
+
 }
 
 //----------------------------------------------------------------------------
@@ -906,6 +1039,25 @@ inline bool regSetValue(HKEY hKey, const std::wstring &varName, const std::wstri
     LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
     return status==ERROR_SUCCESS;
 }
+
+//----------------------------------------------------------------------------
+// inline bool regGetValue(HKEY hKey, const std::wstring &varName, std::wstring &value)
+// {
+//  
+// // https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-reggetvaluew
+//     LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
+//     return status==ERROR_SUCCESS;
+//  
+// // LSTATUS RegGetValueW(
+// //   [in]                HKEY    hkey,
+// //   [in, optional]      LPCWSTR lpSubKey,
+// //   [in, optional]      LPCWSTR lpValue,
+// //   [in, optional]      DWORD   dwFlags,
+// //   [out, optional]     LPDWORD pdwType,
+// //   [out, optional]     PVOID   pvData,
+// //   [in, out, optional] LPDWORD pcbData
+// // );
+// }
 
 //----------------------------------------------------------------------------
 inline bool registerShellExtentionHandlerApplication(bool bSystemRoot, const std::wstring &appNameId, const std::wstring &shellVerb, const std::wstring &appCommand)
