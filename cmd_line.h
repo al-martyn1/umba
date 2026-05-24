@@ -5044,7 +5044,10 @@ public:
 
                     if (!commandOptions.empty())
                     {
-                        oss << plainIndent(1) << heading("Command options", 6) << "\n";
+                        //oss << plainIndent(1) << heading("Command options", 6) << "\n";
+
+                        std::ostringstream tmpOss;
+
                         for(const auto &optName : commandOptions)
                         {
                             auto optFullName = std::string(optName.size()>1 ? "--" : "-") + optName;
@@ -5052,17 +5055,22 @@ public:
                             auto fillStr = std::string(fillingSize, ' ');
 
                             // !!! Пока не даём подсказку по вызову хелпа конкретной опции конкретной команды,
-                            // потому что этот механихм пока не работает, и всегда выводится информация по всем опциям команды
+                            // потому что этот механизм пока не работает, и всегда выводится информация по всем опциям команды
                             auto opInfoFullStr = optFullName; // + "    " + fillStr + it->makeCommandOptionHelpCommand(exeName, optFullName);
 
                             auto optPrintText = listItem(inline_code(opInfoFullStr));
 
                             //!!! Нужна склейка двух inline блоков кода
                             // auto optPrintText = listItem(inline_code(optFullName) + tt("    " + fillStr) + it->makeCommandOptionHelpCommand(exeName, optFullName) );
-                            oss << (isRichFormat() ? "" : "    ") << optPrintText; // << "\n";
+                            tmpOss << (isRichFormat() ? "" : "    ") << optPrintText; // << "\n";
                         }
 
-                        oss << "\n";
+                        if (!string::trim_copy(tmpOss.str()).empty())
+                        {
+                            oss << plainIndent(1) << heading("Command options", 6) << "\n";
+                            oss << tmpOss.str();
+                            oss << "\n";
+                        }
                     }
                 }
                 else
@@ -5080,11 +5088,20 @@ public:
                     if (!printHelpForOptions.empty())
                     {
                         //if (printHelpForOptions.size()>1 || collectedHelpInfo.size()>1)
-                        if (printHelpForOptions.size()>1)
-                            oss << plainIndent(0) << heading("Command options", 6); // << "\n";
 
-                        oss << pCol->makeText( textWidth, &printHelpForOptions );
-                        oss << "\n";
+                        std::ostringstream tmpOss;
+                        // if (printHelpForOptions.size()>1)
+                        //     oss << plainIndent(0) << heading("Command options", 6); // << "\n";
+
+                        tmpOss << pCol->makeText( textWidth, &printHelpForOptions );
+                        //tmpOss << "\n";
+
+                        if (!string::trim_copy(tmpOss.str()).empty())
+                        {
+                            oss << plainIndent(0) << heading("Command options", 6); // << "\n";
+                            oss << tmpOss.str();                        
+                            oss << "\n";
+                        }
                     }
 
                 }
