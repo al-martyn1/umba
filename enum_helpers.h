@@ -290,31 +290,36 @@ bool enumGreaterEqualImpl(EnumType e1, EnumType e2)
              template<typename IntType, typename std::enable_if<std::is_integral<IntType>::value, bool>::type = true > inline   \
              bool operator==(EnumType e, IntType i)                                                                             \
              {                                                                                                                  \
-                 return umba::enum_helpers::toUnderlyingType(e)==umba::enum_helpers::toUnderlyingType(i);                       \
+                 using TUnder = typename std::underlying_type<EnumType>::type;                                                  \
+                 return static_cast<TUnder>(e)==static_cast<TUnder>(i);                                                         \
              }                                                                                                                  \
                                                                                                                                 \
              template<typename IntType, typename std::enable_if<std::is_integral<IntType>::value, bool>::type = true > inline   \
              bool operator==(IntType i, EnumType e)                                                                             \
              {                                                                                                                  \
-                 return umba::enum_helpers::toUnderlyingType(i)==umba::enum_helpers::toUnderlyingType(e);                       \
+                 using TUnder = typename std::underlying_type<EnumType>::type;                                                  \
+                 return static_cast<TUnder>(i)==static_cast<TUnder>(e);                                                         \
              }                                                                                                                  \
                                                                                                                                 \
              template<typename IntType, typename std::enable_if<std::is_integral<IntType>::value, bool>::type = true > inline   \
              bool operator!=(EnumType e, IntType i)                                                                             \
              {                                                                                                                  \
-                 return umba::enum_helpers::toUnderlyingType(e)!=umba::enum_helpers::toUnderlyingType(i);                       \
+                 using TUnder = typename std::underlying_type<EnumType>::type;                                                  \
+                 return static_cast<TUnder>(e)!=static_cast<TUnder>(i);                                                         \
              }                                                                                                                  \
                                                                                                                                 \
              template<typename IntType, typename std::enable_if<std::is_integral<IntType>::value, bool>::type = true > inline   \
              bool operator!=(IntType i, EnumType e)                                                                             \
              {                                                                                                                  \
-                 return umba::enum_helpers::toUnderlyingType(i)!=umba::enum_helpers::toUnderlyingType(e);                       \
+                 using TUnder = typename std::underlying_type<EnumType>::type;                                                  \
+                 return static_cast<TUnder>(i)!=static_cast<TUnder>(e);                                                         \
              }                                                                                                                  \
                                                                                                                                 \
              inline                                                                                                             \
              bool operator!(EnumType e)                                                                                         \
              {                                                                                                                  \
-                 return umba::enum_helpers::toUnderlyingType(e)==0;                                                             \
+                 using TUnder = typename std::underlying_type<EnumType>::type;                                                  \
+                 return static_cast<TUnder>(e)==0;                                                                              \
              }
 
 /*

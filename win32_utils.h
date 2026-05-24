@@ -24,8 +24,9 @@
 
 //----------------------------------------------------------------------------
 // umba::win32_utils::
+// umba::win32::
 namespace umba {
-namespace win32_utils {
+namespace win32 {
 
 //----------------------------------------------------------------------------
 
@@ -99,10 +100,11 @@ inline
 HKEY regCreateKey(HKEY hKeyRoot, const std::wstring &path, REGSAM samDesired)
 {
     // https://learn.microsoft.com/ru-ru/windows/win32/winprog64/accessing-an-alternate-registry-view
-    if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
-    {
-        samDesired |= KEY_WOW64_64KEY;
-    }
+    // Не надо тут делать, пусть юзер сам думает
+    // if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
+    // {
+    //     samDesired |= KEY_WOW64_64KEY;
+    // }
 
     HKEY hKeyRes = 0;
     DWORD dwDisposition = 0;
@@ -130,10 +132,11 @@ HKEY regCreateKey(HKEY hKeyRoot, const std::wstring &path, REGSAM samDesired)
 inline
 HKEY regCreateKey(HKEY hKeyRoot, const std::string &path, REGSAM samDesired)
 {
-    if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
-    {
-        samDesired |= KEY_WOW64_64KEY;
-    }
+    // Не надо тут делать, пусть юзер сам думает
+    // if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
+    // {
+    //     samDesired |= KEY_WOW64_64KEY;
+    // }
 
     HKEY hKeyRes = 0;
     DWORD dwDisposition = 0;
@@ -160,37 +163,39 @@ HKEY regCreateKey(HKEY hKeyRoot, const std::string &path, REGSAM samDesired)
 //----------------------------------------------------------------------------
 inline
 LSTATUS regOpenKeyEx( HKEY              hKey
-                    , const std::string &subKey
+                    , const std::string &subKeyName
                     , DWORD             ulOptions
                     , REGSAM            samDesired
                     , PHKEY             phkResult
                     )
 {
     // https://learn.microsoft.com/ru-ru/windows/win32/winprog64/accessing-an-alternate-registry-view
-    if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
-    {
-        samDesired |= KEY_WOW64_64KEY;
-    }
+    // Не надо тут делать, пусть юзер сам думает
+    // if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
+    // {
+    //     samDesired |= KEY_WOW64_64KEY;
+    // }
 
-    return RegOpenKeyExA(hKey, subKey.c_str(), ulOptions, samDesired, phkResult);
+    return RegOpenKeyExA(hKey, subKeyName.c_str(), ulOptions, samDesired, phkResult);
 }
 
 //----------------------------------------------------------------------------
 inline
 LSTATUS regOpenKeyEx( HKEY               hKey
-                    , const std::wstring &subKey
+                    , const std::wstring &subKeyName
                     , DWORD              ulOptions
                     , REGSAM             samDesired
                     , PHKEY              phkResult
                     )
 {
     // https://learn.microsoft.com/ru-ru/windows/win32/winprog64/accessing-an-alternate-registry-view
-    if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
-    {
-        samDesired |= KEY_WOW64_64KEY;
-    }
+    // Не надо тут делать, пусть юзер сам думает
+    // if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
+    // {
+    //     samDesired |= KEY_WOW64_64KEY;
+    // }
 
-    return RegOpenKeyExW(hKey, subKey.c_str(), ulOptions, samDesired, phkResult);
+    return RegOpenKeyExW(hKey, subKeyName.c_str(), ulOptions, samDesired, phkResult);
 }
 
 //----------------------------------------------------------------------------
@@ -211,6 +216,116 @@ bool regQueryValueType(HKEY hKey, const std::wstring &valueName, DWORD &type, LS
     if (pStatus)
        *pStatus = st;
     return st==ERROR_SUCCESS;
+}
+
+//----------------------------------------------------------------------------
+inline
+bool regQueryValueEx( HKEY                        hKey
+                    , const std::wstring          &valueName
+                    , std::vector<std::uint8_t>   &data
+                    , DWORD                       *pType=0
+                    , LSTATUS                     *pStatus=0
+                    )
+{
+    DWORD type   = 0;
+    DWORD cbData = 0;
+
+    data.clear();
+
+    LSTATUS 
+    status = RegQueryValueExW( hKey
+                             , valueName.c_str()
+                             , 0 // reserved
+                             , &type
+                             , (LPBYTE)0
+                             , &cbData
+                             );
+    if (pStatus)
+       *pStatus = status;
+
+    if (status!=ERROR_SUCCESS && status!=ERROR_MORE_DATA)
+        return false;
+
+    if (pType)
+        *pType = type;
+
+    if (cbData==0)
+        return true;
+    
+    data.resize(std::size_t(cbData), 0);
+
+    status = RegQueryValueExW( hKey
+                             , valueName.c_str()
+                             , 0 // reserved
+                             , &type
+                             , (LPBYTE)&data[0]
+                             , &cbData
+                             );
+    if (pStatus)
+       *pStatus = status;
+
+    if (pType)
+        *pType = type;
+
+    if (status!=ERROR_SUCCESS && status!=ERROR_MORE_DATA)
+        return false;
+
+    return true;
+}
+
+//----------------------------------------------------------------------------
+inline
+bool regQueryValueEx( HKEY                        hKey
+                    , const std::string           &valueName
+                    , std::vector<std::uint8_t>   &data
+                    , DWORD                       *pType=0
+                    , LSTATUS                     *pStatus=0
+                    )
+{
+    DWORD type   = 0;
+    DWORD cbData = 0;
+
+    data.clear();
+
+    LSTATUS 
+    status = RegQueryValueExA( hKey
+                             , valueName.c_str()
+                             , 0 // reserved
+                             , &type
+                             , (LPBYTE)0
+                             , &cbData
+                             );
+    if (pStatus)
+       *pStatus = status;
+
+    if (pType)
+        *pType = type;
+
+    if (status!=ERROR_SUCCESS && status!=ERROR_MORE_DATA)
+        return false;
+
+    if (cbData==0)
+        return true;
+
+    data.resize(std::size_t(cbData), 0);
+
+    status = RegQueryValueExA( hKey
+                             , valueName.c_str()
+                             , 0 // reserved
+                             , &type
+                             , (LPBYTE)&data[0]
+                             , &cbData
+                             );
+    if (pStatus)
+       *pStatus = status;
+
+    if (pType)
+        *pType = type;
+
+    if (status!=ERROR_SUCCESS && status!=ERROR_MORE_DATA)
+        return false;
+
+    return true;
 }
 
 //----------------------------------------------------------------------------
@@ -365,6 +480,88 @@ bool regQueryValueEx( HKEY               hKey
     value.assign(pBuf, charsCopied);
 
     return true;
+}
+
+//----------------------------------------------------------------------------
+template<typename StringType> inline
+bool regGetValue( HKEY                        hKey
+                , const StringType            &subKeyName
+                , const StringType            &valueName
+                , std::vector<std::uint8_t>   &data
+                , REGSAM                      samDesired = 0 // extra flags
+                , DWORD                       *pType=0
+                , LSTATUS                     *pStatus=0
+                )
+{
+    HKEY subKey;
+
+    samDesired |= KEY_QUERY_VALUE;
+    
+    LSTATUS
+    status = regOpenKeyEx( hKey, subKeyName
+                         , 0 // ulOptions
+                         , samDesired
+                         , &subKey
+                         );
+
+    if (pStatus)
+       *pStatus = status;
+
+    if (status!=ERROR_SUCCESS)
+        return false;
+
+    try
+    {
+        bool res = regQueryValueEx(subKey, valueName, data, pType, pStatus);
+        RegCloseKey(subKey);
+        return res;
+    }
+    catch(...)
+    {
+        RegCloseKey(subKey);
+        throw;
+    }
+}
+
+//----------------------------------------------------------------------------
+template<typename StringType> inline
+bool regGetValue( HKEY                        hKey
+                , const StringType            &subKeyName
+                , const StringType            &valueName
+                , StringType                  &data
+                , REGSAM                      samDesired = 0 // extra flags
+                , DWORD                       *pType=0
+                , LSTATUS                     *pStatus=0
+                )
+{
+    HKEY subKey;
+
+    samDesired |= KEY_QUERY_VALUE;
+    
+    LSTATUS
+    status = regOpenKeyEx( hKey, subKeyName
+                         , 0 // ulOptions
+                         , samDesired
+                         , &subKey
+                         );
+
+    if (pStatus)
+       *pStatus = status;
+
+    if (status!=ERROR_SUCCESS)
+        return false;
+
+    try
+    {
+        bool res = regQueryValueEx(subKey, valueName, data, pType, pStatus);
+        RegCloseKey(subKey);
+        return res;
+    }
+    catch(...)
+    {
+        RegCloseKey(subKey);
+        throw;
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -566,7 +763,10 @@ bool regQueryAppInstallLocationBin(const StringType &appUninstallSectionName, St
 }
 
 
-} // namespace win32_utils
+} // namespace win32
+
+namespace win32_utils = win32;
+
 } // namespace umba
 
 

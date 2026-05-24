@@ -15,6 +15,7 @@
 #include "filename.h"
 #include "filesys.h"
 #include "enum_helpers.h"
+#include "env.h"
 
 //
 #include <cstdint>
@@ -58,6 +59,280 @@
 // umba::shellapi::
 namespace umba {
 namespace shellapi {
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+#if defined(WIN32) || defined(_WIN32)
+
+namespace win32 {
+
+// https://superuser.com/questions/266268/where-in-the-registry-does-windows-store-with-which-program-to-open-certain-file
+// https://learn.microsoft.com/en-us/windows/win32/shell/how-to-register-a-file-type-for-a-new-application
+// https://stackoverflow.com/questions/1387769/create-registry-entry-to-associate-file-extension-with-application-in-c
+
+//----------------------------------------------------------------------------
+inline HKEY getRegShellExtentionsRootHkey(bool bSystemRoot = false)
+{
+    if (!bSystemRoot)
+       return HKEY_CURRENT_USER;
+    else
+       return HKEY_CLASSES_ROOT;
+}
+
+//----------------------------------------------------------------------------
+inline std::wstring getRegShellExtentionHandlersRootPath(bool bSystemRoot = false)
+{
+    std::wstring regPath;
+
+    if (!bSystemRoot)
+    {
+       regPath.append(L"Software");
+       regPath.append(L"\\Classes");
+    }
+
+    return regPath;
+}
+
+//----------------------------------------------------------------------------
+inline bool regSetValue(HKEY hKey, const std::wstring &varName, const std::wstring &value)
+{
+    LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
+    return status==ERROR_SUCCESS;
+}
+
+inline bool regSetValue(HKEY hKey, const std::string &varName, const std::string &value)
+{
+    return regSetValue(hKey, fromUtf8(varName), fromUtf8(value));
+}
+
+//----------------------------------------------------------------------------
+// inline bool regGetValue(HKEY hKey, const std::wstring &varName, std::wstring &value)
+// {
+//  
+// // https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-reggetvaluew
+//     LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
+//     return status==ERROR_SUCCESS;
+//  
+// // LSTATUS RegGetValueW(
+// //   [in]                HKEY    hkey,
+// //   [in, optional]      LPCWSTR lpSubKey,
+// //   [in, optional]      LPCWSTR lpValue,
+// //   [in, optional]      DWORD   dwFlags,
+// //   [out, optional]     LPDWORD pdwType,
+// //   [out, optional]     PVOID   pvData,
+// //   [in, out, optional] LPDWORD pcbData
+// // );
+// }
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerApplication(bool bSystemRoot, const std::wstring &appNameId, const std::wstring &shellVerb, const std::wstring &appCommand)
+{
+
+    // Компьютер\HKEY_CLASSES_ROOT\md__auto_file
+    //     shell
+    //       open
+    //         command
+    //           default value: "F:\_github\umba-tools\umba-md-pp\.out\msvc2019\x86\Debug\umba-md-pp-view.exe" "%1"
+    //
+    // HKEY_CLASSES_ROOT\.md_
+    //     default value md__auto_file
+    //
+    // The nameless key is the default one - https://learn.microsoft.com/en-us/dotnet/api/microsoft.win32.registry.setvalue?view=net-8.0&redirectedfrom=MSDN#overloads
+
+    HKEY hRootKey = getRegShellExtentionsRootHkey(bSystemRoot);
+
+    std::wstring regPath = getRegShellExtentionHandlersRootPath(bSystemRoot);
+
+    if (!regPath.empty())
+        regPath.append(L"\\");
+
+    regPath.append(appNameId);
+    regPath.append(L"\\shell");
+    regPath.append(L"\\");
+    regPath.append(shellVerb);
+    regPath.append(L"\\command");
+
+    //HKEY hKey = regCreateKeyHelper(hRootKey, regPath,  /* KEY_READ| */ KEY_WRITE);
+    HKEY hKey = umba::win32_utils::regCreateKey(hRootKey, regPath, KEY_WRITE);
+
+    if (!hKey)
+        return false;
+
+    bool res = regSetValue(hKey, L"" /* varName */ , appCommand);
+
+    RegCloseKey(hKey);
+
+    return res;
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerApplication(bool bSystemRoot, const std::string &appNameId, const std::string &shellVerb, const std::string &appCommand)
+{
+    return registerShellExtentionHandlerApplication(bSystemRoot, fromUtf8(appNameId), fromUtf8(shellVerb), fromUtf8(appCommand));
+
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtention(bool bSystemRoot, const std::wstring &appNameId, std::wstring ext)
+{
+
+    if (ext.empty())
+        return false;
+
+    if (ext.front()!=L'.')
+    {
+        ext = L"." + ext;
+    }
+
+    //HKEY hRootKey = regGetShellExtentionsRoot();
+    HKEY hRootKey = getRegShellExtentionsRootHkey(bSystemRoot);
+
+    //std::wstring regPath = regShellExtentionHandlersRootPath();
+    std::wstring regPath = getRegShellExtentionHandlersRootPath(bSystemRoot);
+
+    if (!regPath.empty())
+        regPath.append(L"\\");
+
+    regPath.append(ext);
+
+    //HKEY hKey = regCreateKeyHelper(hRootKey, regPath,  /* KEY_READ| */ KEY_WRITE);
+    HKEY hKey = umba::win32_utils::regCreateKey(hRootKey, regPath, KEY_WRITE);
+
+    if (!hKey)
+        return false;
+
+    bool res = regSetValue(hKey, L"" /* varName */ , appNameId);
+
+    RegCloseKey(hKey);
+
+    return res;
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtention(bool bSystemRoot, const std::string &appNameId, const std::string &ext)
+{
+    return registerShellExtentionHandlerForExtention(bSystemRoot, fromUtf8(appNameId), fromUtf8(ext));
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::wstring &appNameId, const std::vector<std::wstring> &extList)
+{
+    bool res = true;
+
+    for(auto ext: extList)
+    {
+        if (!registerShellExtentionHandlerForExtention(bSystemRoot, appNameId, ext))
+            res = false;
+    }
+
+    return res;
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::string &appNameId, const std::vector<std::string> &extList)
+{
+    std::vector<std::wstring> extListW;
+    for(const auto &ext: extList)
+    {
+        extListW.emplace_back(fromUtf8(ext));
+    }
+
+    return registerShellExtentionHandlerForExtentionList(bSystemRoot, fromUtf8(appNameId), extListW);
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::wstring &appNameId, const std::wstring &extCommaList)
+{
+    //auto extList = marty_cpp::splitToLinesSimple(extCommaList, false, ',');
+    auto extList = umba::string_plus::split(extCommaList, std::wstring(L",", true /* skipEmpty */ ));
+    for(auto &ext: extList)
+    {
+        umba::string_plus::trim(ext);
+    }
+
+    return registerShellExtentionHandlerForExtentionList(bSystemRoot, appNameId, extList);
+}
+
+//----------------------------------------------------------------------------
+inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::string &appNameId, const std::string &extCommaList)
+{
+    return registerShellExtentionHandlerForExtentionList(bSystemRoot, fromUtf8(appNameId), fromUtf8(extCommaList));
+}
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+inline
+bool fileAttributeHiddenSet(const std::string &fname, bool bSet)
+{
+    auto preparedName = umba::filename::prepareForNativeUsage(umba::filesys::impl_helpers::encodeToNative(fname));
+    DWORD attrs = GetFileAttributesW(preparedName.c_str());
+    if (attrs==INVALID_FILE_ATTRIBUTES)
+        return false;
+
+    if (bSet)
+        attrs |=  FILE_ATTRIBUTE_HIDDEN;
+    else
+        attrs &= ~FILE_ATTRIBUTE_HIDDEN;
+
+    return SetFileAttributesW(preparedName.c_str(), attrs) ? true : false;
+}
+
+//----------------------------------------------------------------------------
+inline
+bool fileAttributeHiddenGet(const std::string &fname)
+{
+    auto preparedName = umba::filename::prepareForNativeUsage(umba::filesys::impl_helpers::encodeToNative(fname));
+    DWORD attrs = GetFileAttributesW(preparedName.c_str());
+    if (attrs==INVALID_FILE_ATTRIBUTES)
+        return false;
+
+    return (attrs&INVALID_FILE_ATTRIBUTES) ? true : false;
+}
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+inline
+bool shellParamShowHiddenFilesSet(bool bShow)
+{
+    SHELLSTATE  shSt = {};
+    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, FALSE);
+    shSt.fShowAllObjects = bShow ? TRUE : FALSE;
+    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, TRUE);
+    return true;
+    // fShowAllObjects/SSF_SHOWALLOBJECTS   - TRUE to show all objects, including hidden files and folders. FALSE to hide hidden files and folders.
+    // fShowSuperHidden/SSF_SHOWSUPERHIDDEN - TRUE to show operating system files - 
+    // fShowSysFiles/SSF_SHOWSYSFILES       - TRUE to show system files, FALSE to hide them.
+
+}
+
+//----------------------------------------------------------------------------
+inline
+bool shellParamShowHiddenFilesGet(bool bShow)
+{
+    UMBA_USED(bShow);
+    SHELLSTATE  shSt = {};
+    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, FALSE);
+    return shSt.fShowAllObjects ? true : false;
+}
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+
+} // namespace win32
+
+#endif
 
 //----------------------------------------------------------------------------
 
@@ -109,7 +384,7 @@ std::string getErrorMessage(int errCode = getLastError(), bool addCodeValue=true
     const char *pCodeStr = 0;
     {
         //const std::unordered_map<unsigned, const char*>& 
-        const auto &m = win32::getStrErrorNameMap();
+        const auto &m = umba::win32::getStrErrorNameMap();
         auto it = m.find((unsigned)errCode);
         if (it!=m.end())
         {
@@ -579,32 +854,318 @@ int callSystem(const std::string &cmd, const std::vector<std::string> &cmdArgs, 
 
 
 //----------------------------------------------------------------------------
-/*
+enum class FindExecutableFlags : std::uint32_t
+{
+    none           = 0x0000,
 
+    regHklm        = 0x0001, // Win32 only: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+    regHkcu        = 0x0002, // Win32 only: HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+    regLast        = 0x0004, // default - first
+
+    curDir         = 0x0008,
+    curLast        = 0x0010, // default - after registry
+
+    pathSearch     = 0x0000, // search in PATH
+    noPathSearch   = 0x0020, // don't search in PATH
+
+    nativeOnly     = 0x0000, // native binary executrables only
+    noNativeOnly   = 0x0040, // allow any executable
+
+#if defined(WIN32) || defined(_WIN32)
+    default_       = 0x0001 | 0x0002 | 0x0008, // regHklm | regHkcu | curDir // По умолчанию - реестр в начале, текущий каталог первый, и пути PATH
+#else
+    default_       = 0x0000, // для *nix по умолчанию ищем только в путях
+#endif
+
+    allFlags       = 0x007F
+
+}; // enum class FindExecutableFlags
+
+UMBA_ENUM_CLASS_IMPLEMENT_BIT_OPERATORS(FindExecutableFlags)
+UMBA_ENUM_CLASS_IMPLEMENT_UNDERLYING_TYPE_BIT_OPERATORS(FindExecutableFlags)
+UMBA_ENUM_CLASS_IMPLEMENT_UNDERLYING_TYPE_EQUAL_OPERATORS(FindExecutableFlags)
+
+//----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+inline
+std::string findExecutableInFolder(const std::string &path, const std::string &exeName, bool bNativeExeOnly)
+{
+    auto fullPathExe = filename::appendPath(path, exeName);
+    auto ext = filename::getExt(fullPathExe);
+
+    if (!ext.empty())
+    {
+        // есть расширение, проверяем наличие
+
+        auto extLower = string::tolower_copy(ext);
+        if (bNativeExeOnly)
+        {
+            #if !(defined(WIN32) || defined(_WIN32))
+            // Тут наверное надо прочитать файл и проверить наличие шебанга
+            #else
+            if (extLower!="exe" && extLower!="com") // Другие расширения не являются нативными исполняемыми файлами
+                return std::string();
+            #endif
+        }
+
+        if (filesys::isPathFile(fullPathExe))
+            return fullPathExe;
+
+        return std::string();
+    }
+
+
+    // У нас нет расширения, и тут алгоритм для разных систем разный
+
+#if !(defined(WIN32) || defined(_WIN32))
+
+    if (filesys::isPathFile(fullPathExe)) // ничего не добавляем, проверяем, как есть
+        return exeName;
+
+    // !!! Надо добавить проверку атрибута X
+
+    return std::string();
+
+#else
+
+    std::vector<std::string> extList;
+
+    if (bNativeExeOnly)
+    {
+        extList.push_back("exe");
+        extList.push_back("com");
+    }
+    else
+    {
+        std::string pathExtListStr;
+        env::getVar(std::string("PATHEXT"), pathExtListStr);
+        extList = filename::splitPathList(pathExtListStr);
+    }
+
+    for(const auto &extFromList : extList)
+    {
+        auto testName = filename::appendExt(fullPathExe, extFromList);
+
+        if (filesys::isPathFile(testName))
+            return testName;
+    }
+
+    return std::string();
+
+#endif
+}
+
+//----------------------------------------------------------------------------
+/*
     Поиск исполняемых файлов.
 
     where /R C:\ chrome.exe
     dir /s C:\chrome.exe
 
     https://chat.deepseek.com/share/bmqxjikfbbr1il3ejh
+    Подетальнее + Linux - https://chat.deepseek.com/share/0rfr7x3aaplixkpzgc
 
     HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
     HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
 
+    PATHEXT = .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW;.RB;.RBW
 
+    Поиск - реестр, пути, текущий каталог
 */
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const std::string &exeName, std::vector<std::string> &foundExes, const std::string &curDirOverride, FindExecutableFlags findFlags)
+{
+    if (!filename::getPath(exeName).empty())
+    {
+        // if (filesys::isPathFile(exeName)) // Или не надо проверять, пусть получит ошибку при запуске, раз задал сам явно полный путь?
+            foundExes.push_back(exeName);
+        return;
+    }
+
+    std::basic_string<FindExecutableFlags> flagList;
+
+    bool nativeOnly = (findFlags & FindExecutableFlags::noNativeOnly)==0 ? true : false;
+
+    if ((findFlags&FindExecutableFlags::noPathSearch)==0) // нет запрета использовать PATH
+       flagList.push_back(FindExecutableFlags::pathSearch);
+
+
+    {
+        std::basic_string<FindExecutableFlags> regFlagList;
+
+        if ((findFlags&FindExecutableFlags::regHklm)!=0) // ищем в HKLM
+           flagList.push_back(FindExecutableFlags::regHklm);
+
+        if ((findFlags&FindExecutableFlags::regHkcu)!=0) // ищем в HKCU
+           flagList.push_back(FindExecutableFlags::regHkcu);
+
+        flagList.insert( ((findFlags&FindExecutableFlags::regLast)==0) ? flagList.begin() : flagList.end()
+                       , regFlagList.begin(), regFlagList.end()
+                       );
+    }
+
+    // Текущий каталог либо самый первый, либо самый последний
+    if ((findFlags&FindExecutableFlags::curDir)!=0)
+    {
+        flagList.insert( ((findFlags&FindExecutableFlags::curLast)==0) ? flagList.begin() : flagList.end()
+                       , FindExecutableFlags::curDir
+                       );
+    }
+
+
+    foundExes.clear();
+
+    std::unordered_set<std::string> foundExesSet;
+
+    for(const auto &flag : flagList)
+    {
+        if (flag==FindExecutableFlags::pathSearch)
+        {
+            std::string pathListStr;
+            env::getVar(std::string("PATH"), pathListStr);
+        
+            auto pathList = filename::splitPathList(pathListStr);
+            for(auto &&path : pathList)
+            {
+                auto foundExe = findExecutableInFolder(path, exeName, nativeOnly);
+    
+                if (!foundExe.empty())
+                {
+                    if (foundExesSet.find(foundExe)==foundExesSet.end())
+                    {
+                        foundExes.push_back(foundExe);
+                        foundExesSet.insert(foundExe);
+                    }
+                }
+            }
+
+            continue;
+        }
+
+        if (flag==FindExecutableFlags::regHklm || flag==FindExecutableFlags::regHkcu)
+        {
+            #if defined(WIN32) || defined(_WIN32)
+            std::string regKeyName = exeName;
+            auto ext = filename::getExt(exeName);
+            if (ext.empty())
+                regKeyName = filename::appendExt(exeName, std::string("exe"));
+
+            std::wstring exeFullName;
+            if (umba::win32::regGetValue( flag==FindExecutableFlags::regHklm ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
+                                        , std::wstring(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + string::make_string<std::wstring>(regKeyName))
+                                        , std::wstring()
+                                        , exeFullName
+                                        )
+               )
+            {
+                auto foundExe = toUtf8(exeFullName);
+                if (foundExesSet.find(foundExe)==foundExesSet.end())
+                {
+                    foundExes.push_back(foundExe);
+                    foundExesSet.insert(foundExe);
+                }
+            }
+            #endif
+
+            continue;
+        }
+
+        if (flag==FindExecutableFlags::curDir)
+        {
+            auto curDir = curDirOverride;
+
+            if (curDir.empty())
+                curDir = filesys::getCurrentDirectory();
+
+            auto foundExe = findExecutableInFolder(curDir, exeName, nativeOnly);
+
+            if (!foundExe.empty())
+            {
+                if (foundExesSet.find(foundExe)==foundExesSet.end())
+                {
+                    foundExes.push_back(foundExe);
+                    foundExesSet.insert(foundExe);
+                }
+            }
+
+            continue;
+        }
+
+        // тут надо бы ассерт
+        
+    }
+
+}
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const char *exeName, std::vector<std::string> &foundExes, const std::string &curDirOverride, FindExecutableFlags findFlags)
+{
+    findExecutable(std::string(exeName), foundExes, curDirOverride, findFlags);
+}
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const std::string &exeName, std::vector<std::string> &foundExes, FindExecutableFlags findFlags)
+{
+    findExecutable(exeName, foundExes, std::string(), findFlags);
+}
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const char *exeName, std::vector<std::string> &foundExes, FindExecutableFlags findFlags)
+{
+    findExecutable(std::string(exeName), foundExes, std::string(), findFlags);
+}
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const std::string &exeName, std::vector<std::string> &foundExes)
+{
+    findExecutable(exeName, foundExes, std::string(), FindExecutableFlags::default_);
+}
+
+//----------------------------------------------------------------------------
+inline
+void findExecutable(const char *exeName, std::vector<std::string> &foundExes)
+{
+    findExecutable(std::string(exeName), foundExes, std::string(), FindExecutableFlags::default_);
+}
+
+//----------------------------------------------------------------------------
+
 
 
 //----------------------------------------------------------------------------
-enum class SpawnProcessFlags
+enum class SpawnProcessFlags : std::uint32_t
 {
-    default_               = 0x00,
+    none                   = static_cast<std::uint32_t>(FindExecutableFlags::none),
+ 
+    regHklm                = static_cast<std::uint32_t>(FindExecutableFlags::regHklm), // Win32 only: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+    regHkcu                = static_cast<std::uint32_t>(FindExecutableFlags::regHkcu), // Win32 only: HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+    regLast                = static_cast<std::uint32_t>(FindExecutableFlags::regLast), // default - first
+ 
+    curDir                 = static_cast<std::uint32_t>(FindExecutableFlags::curDir ),
+    curLast                = static_cast<std::uint32_t>(FindExecutableFlags::curLast), // default - after registry
+ 
+    pathSearch             = static_cast<std::uint32_t>(FindExecutableFlags::pathSearch  ), // search in PATH
+    noPathSearch           = static_cast<std::uint32_t>(FindExecutableFlags::noPathSearch), // don't search in PATH
 
-    noUseExactExeName      = 0x00, // do lookup in PATH env var
-    useExactExeName        = 0x01, // no lookup in PATH env var
+    nativeOnly             = static_cast<std::uint32_t>(FindExecutableFlags::nativeOnly  ), // native binary executrables only
+    noNativeOnly           = static_cast<std::uint32_t>(FindExecutableFlags::noNativeOnly), // allow any executable
 
-    noArgsExeAlready       = 0x00,
-    argsExeAlready         = 0x02, // executable file name already added to cmdArgs
+    default_               = static_cast<std::uint32_t>(FindExecutableFlags::default_),
+
+    argvAlready            = 0x0100,  // executable already in argv array
+    argvFromCmd            = 0x0200,  // insert executable file name from cmd argument, not full found name
+    argvFromFound          = 0x0000,  // use first found full exe name to set first argv
+
+    argvOptMask            = 0x0300
 
 };
 
@@ -618,12 +1179,39 @@ UMBA_ENUM_CLASS_IMPLEMENT_UNDERLYING_TYPE_EQUAL_OPERATORS(SpawnProcessFlags)
 
 //----------------------------------------------------------------------------
 //! Запускает процесс без ожидания, в отличие от callSystem. Также не используется никакой shell
-// Поиск производится в путях, переменные среды наследуются от текущего процесса
 // Возвращает PID процесса
 inline
-int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs, SpawnProcessFlags spawnProcessFlags=SpawnProcessFlags::default_, std::string *pErrMsg=0)
+std::uintptr_t spawnProcess( const std::string &cmd, const std::vector<std::string> &cmdArgs, const std::string &curDirOverride, SpawnProcessFlags spawnFlags, std::string *pErrMsg=0)
 {
     // UMBA_ARG_USED(allocateConsole); // , bool allocateConsole=true
+
+    // ERROR_FILE_NOT_FOUND
+    // ENOENT
+
+    std::vector<std::string> foundExes;
+
+    // Оставляем только родные FindExecutableFlags флаги
+    FindExecutableFlags feFlags = static_cast<FindExecutableFlags>(static_cast<std::uint32_t>(spawnFlags) & static_cast<std::uint32_t>(FindExecutableFlags::allFlags));
+    feFlags = feFlags & ~FindExecutableFlags::noNativeOnly; // тут мы пока поддерживаем только нативные EXE
+
+    findExecutable(cmd, foundExes, curDirOverride, feFlags);
+
+    // nativeOnly             = static_cast<std::uint32_t>(FindExecutableFlags::nativeOnly  ), // native binary executrables only
+    // noNativeOnly           = static_cast<std::uint32_t>(FindExecutableFlags::noNativeOnly), // allow any executable
+
+
+    if (foundExes.empty())
+    {
+        if (pErrMsg)
+        {
+            #include "umba/warnings/push_disable_fn_or_var_unsafe.h"
+            *pErrMsg = std::strerror(ENOENT);
+            #include "umba/warnings/pop.h"
+        }
+
+        return std::uintptr_t(-1);
+    }
+
 
     #if defined(WIN32) && defined(_WIN32)
 
@@ -632,10 +1220,21 @@ int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs
         // _P_NOWAIT
         std::vector<std::wstring> argsWide; argsWide.reserve(cmdArgs.size()+1);
 
-        if ((spawnProcessFlags&SpawnProcessFlags::argsExeAlready)==0)
+        auto argvHow = spawnFlags & SpawnProcessFlags::argvOptMask;
+
+        if (argvHow==SpawnProcessFlags::argvAlready)
+        {
+            // Ничего не делаем
+        }
+        else if (argvHow==SpawnProcessFlags::argvFromCmd)
         {
             argsWide.push_back(fromUtf8(cmd));
         }
+        else if (argvHow==SpawnProcessFlags::argvFromFound)
+        {
+            argsWide.push_back(fromUtf8(foundExes.front()));
+        }
+
 
         for(auto &&a : cmdArgs)
         {
@@ -650,15 +1249,9 @@ int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs
 
         argv.push_back(nullptr);
 
-        auto wCmd = fromUtf8(cmd);
+        auto wCmd = fromUtf8(foundExes.front()); // fromUtf8(cmd);
 
-        const bool usePath = (spawnProcessFlags&SpawnProcessFlags::useExactExeName)==0;
-        auto pSpawnFn = usePath ? &_wspawnvp : &_wspawnv;
-
-        // Если системная пременная PATH содержит много путей, то данная функция обламывается, и возвращает EINVAL,
-        // что выглядит весьма непрозрачно, об этом надо просто знать
-
-        std::intptr_t processHandle = pSpawnFn( _P_NOWAIT // |_P_DETACH
+        std::intptr_t processHandle = _wspawnv( _P_NOWAIT // | _P_DETACH
                                               , wCmd.c_str()
                                               , &argv[0]
                                               );
@@ -671,18 +1264,19 @@ int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs
                 #include "umba/warnings/pop.h"
             }
 
-            return -1;
+            return std::uintptr_t(-1);
         }
 
-        return 0;
+        HANDLE hProcess = (HANDLE)processHandle;
+        std::uintptr_t res = std::uintptr_t(GetProcessId(hProcess));
 
+        CloseHandle(hProcess);
 
-//         DWORD GetProcessId(
-//   [in] HANDLE Process
-// );
+        return res;
 
     #else
 
+        // !!! Undone
         // posix_spawn
         // Standard C library (libc, -lc)
         // #include <spawn.h> ?
@@ -696,6 +1290,55 @@ int spawnProcess(const std::string &cmd, const std::vector<std::string> &cmdArgs
 
     #endif
 
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const char *pCmd, const std::vector<std::string> &cmdArgs, const std::string &curDirOverride, SpawnProcessFlags spawnFlags, std::string *pErrMsg=0)
+{
+    return spawnProcess(std::string(pCmd), cmdArgs, curDirOverride, spawnFlags, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const std::string &cmd, const std::vector<std::string> &cmdArgs, const std::string &curDirOverride, std::string *pErrMsg=0)
+{
+    return spawnProcess(cmd, cmdArgs, curDirOverride, SpawnProcessFlags::default_, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const char *pCmd, const std::vector<std::string> &cmdArgs, const std::string &curDirOverride, std::string *pErrMsg=0)
+{
+    return spawnProcess(std::string(pCmd), cmdArgs, curDirOverride, SpawnProcessFlags::default_, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const std::string &cmd, const std::vector<std::string> &cmdArgs, SpawnProcessFlags spawnFlags, std::string *pErrMsg=0)
+{
+    return spawnProcess(cmd, cmdArgs, std::string(), spawnFlags, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const char *pCmd, const std::vector<std::string> &cmdArgs, SpawnProcessFlags spawnFlags, std::string *pErrMsg=0)
+{
+    return spawnProcess(std::string(pCmd), cmdArgs, std::string(), spawnFlags, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const std::string &cmd, const std::vector<std::string> &cmdArgs, std::string *pErrMsg=0)
+{
+    return spawnProcess(cmd, cmdArgs, std::string(), SpawnProcessFlags::default_, pErrMsg);
+}
+
+//----------------------------------------------------------------------------
+inline
+std::uintptr_t spawnProcess( const char *pCmd, const std::vector<std::string> &cmdArgs, std::string *pErrMsg=0)
+{
+    return spawnProcess(std::string(pCmd), cmdArgs, std::string(), SpawnProcessFlags::default_, pErrMsg);
 }
 
 //----------------------------------------------------------------------------
@@ -1001,272 +1644,6 @@ inline std::string getDebugAppRootFolder( std::string *pCwd
 }
 
 
-//----------------------------------------------------------------------------
-#if defined(WIN32) || defined(_WIN32)
-
-namespace win32 {
-
-// https://superuser.com/questions/266268/where-in-the-registry-does-windows-store-with-which-program-to-open-certain-file
-// https://learn.microsoft.com/en-us/windows/win32/shell/how-to-register-a-file-type-for-a-new-application
-// https://stackoverflow.com/questions/1387769/create-registry-entry-to-associate-file-extension-with-application-in-c
-
-//----------------------------------------------------------------------------
-inline HKEY getRegShellExtentionsRootHkey(bool bSystemRoot = false)
-{
-    if (!bSystemRoot)
-       return HKEY_CURRENT_USER;
-    else
-       return HKEY_CLASSES_ROOT;
-}
-
-//----------------------------------------------------------------------------
-inline std::wstring getRegShellExtentionHandlersRootPath(bool bSystemRoot = false)
-{
-    std::wstring regPath;
-
-    if (!bSystemRoot)
-    {
-       regPath.append(L"Software");
-       regPath.append(L"\\Classes");
-    }
-
-    return regPath;
-}
-
-//----------------------------------------------------------------------------
-inline bool regSetValue(HKEY hKey, const std::wstring &varName, const std::wstring &value)
-{
-    LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
-    return status==ERROR_SUCCESS;
-}
-
-//----------------------------------------------------------------------------
-// inline bool regGetValue(HKEY hKey, const std::wstring &varName, std::wstring &value)
-// {
-//  
-// // https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-reggetvaluew
-//     LSTATUS status = RegSetValueW(hKey, varName.c_str(), REG_SZ, (LPCWSTR)value.c_str(), (DWORD)(value.size()+1)*sizeof(wchar_t));
-//     return status==ERROR_SUCCESS;
-//  
-// // LSTATUS RegGetValueW(
-// //   [in]                HKEY    hkey,
-// //   [in, optional]      LPCWSTR lpSubKey,
-// //   [in, optional]      LPCWSTR lpValue,
-// //   [in, optional]      DWORD   dwFlags,
-// //   [out, optional]     LPDWORD pdwType,
-// //   [out, optional]     PVOID   pvData,
-// //   [in, out, optional] LPDWORD pcbData
-// // );
-// }
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerApplication(bool bSystemRoot, const std::wstring &appNameId, const std::wstring &shellVerb, const std::wstring &appCommand)
-{
-
-    // Компьютер\HKEY_CLASSES_ROOT\md__auto_file
-    //     shell
-    //       open
-    //         command
-    //           default value: "F:\_github\umba-tools\umba-md-pp\.out\msvc2019\x86\Debug\umba-md-pp-view.exe" "%1"
-    //
-    // HKEY_CLASSES_ROOT\.md_
-    //     default value md__auto_file
-    //
-    // The nameless key is the default one - https://learn.microsoft.com/en-us/dotnet/api/microsoft.win32.registry.setvalue?view=net-8.0&redirectedfrom=MSDN#overloads
-
-    HKEY hRootKey = getRegShellExtentionsRootHkey(bSystemRoot);
-
-    std::wstring regPath = getRegShellExtentionHandlersRootPath(bSystemRoot);
-
-    if (!regPath.empty())
-        regPath.append(L"\\");
-
-    regPath.append(appNameId);
-    regPath.append(L"\\shell");
-    regPath.append(L"\\");
-    regPath.append(shellVerb);
-    regPath.append(L"\\command");
-
-    //HKEY hKey = regCreateKeyHelper(hRootKey, regPath,  /* KEY_READ| */ KEY_WRITE);
-    HKEY hKey = umba::win32_utils::regCreateKey(hRootKey, regPath, KEY_WRITE);
-
-    if (!hKey)
-        return false;
-
-    bool res = regSetValue(hKey, L"" /* varName */ , appCommand);
-
-    RegCloseKey(hKey);
-
-    return res;
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerApplication(bool bSystemRoot, const std::string &appNameId, const std::string &shellVerb, const std::string &appCommand)
-{
-    return registerShellExtentionHandlerApplication(bSystemRoot, fromUtf8(appNameId), fromUtf8(shellVerb), fromUtf8(appCommand));
-
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtention(bool bSystemRoot, const std::wstring &appNameId, std::wstring ext)
-{
-
-    if (ext.empty())
-        return false;
-
-    if (ext.front()!=L'.')
-    {
-        ext = L"." + ext;
-    }
-
-    //HKEY hRootKey = regGetShellExtentionsRoot();
-    HKEY hRootKey = getRegShellExtentionsRootHkey(bSystemRoot);
-
-    //std::wstring regPath = regShellExtentionHandlersRootPath();
-    std::wstring regPath = getRegShellExtentionHandlersRootPath(bSystemRoot);
-
-    if (!regPath.empty())
-        regPath.append(L"\\");
-
-    regPath.append(ext);
-
-    //HKEY hKey = regCreateKeyHelper(hRootKey, regPath,  /* KEY_READ| */ KEY_WRITE);
-    HKEY hKey = umba::win32_utils::regCreateKey(hRootKey, regPath, KEY_WRITE);
-
-    if (!hKey)
-        return false;
-
-    bool res = regSetValue(hKey, L"" /* varName */ , appNameId);
-
-    RegCloseKey(hKey);
-
-    return res;
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtention(bool bSystemRoot, const std::string &appNameId, const std::string &ext)
-{
-    return registerShellExtentionHandlerForExtention(bSystemRoot, fromUtf8(appNameId), fromUtf8(ext));
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::wstring &appNameId, const std::vector<std::wstring> &extList)
-{
-    bool res = true;
-
-    for(auto ext: extList)
-    {
-        if (!registerShellExtentionHandlerForExtention(bSystemRoot, appNameId, ext))
-            res = false;
-    }
-
-    return res;
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::string &appNameId, const std::vector<std::string> &extList)
-{
-    std::vector<std::wstring> extListW;
-    for(const auto &ext: extList)
-    {
-        extListW.emplace_back(fromUtf8(ext));
-    }
-
-    return registerShellExtentionHandlerForExtentionList(bSystemRoot, fromUtf8(appNameId), extListW);
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::wstring &appNameId, const std::wstring &extCommaList)
-{
-    //auto extList = marty_cpp::splitToLinesSimple(extCommaList, false, ',');
-    auto extList = umba::string_plus::split(extCommaList, std::wstring(L",", true /* skipEmpty */ ));
-    for(auto &ext: extList)
-    {
-        umba::string_plus::trim(ext);
-    }
-
-    return registerShellExtentionHandlerForExtentionList(bSystemRoot, appNameId, extList);
-}
-
-//----------------------------------------------------------------------------
-inline bool registerShellExtentionHandlerForExtentionList(bool bSystemRoot, const std::string &appNameId, const std::string &extCommaList)
-{
-    return registerShellExtentionHandlerForExtentionList(bSystemRoot, fromUtf8(appNameId), fromUtf8(extCommaList));
-}
-
-//----------------------------------------------------------------------------
-
-
-
-//----------------------------------------------------------------------------
-inline
-bool fileAttributeHiddenSet(const std::string &fname, bool bSet)
-{
-    auto preparedName = umba::filename::prepareForNativeUsage(umba::filesys::impl_helpers::encodeToNative(fname));
-    DWORD attrs = GetFileAttributesW(preparedName.c_str());
-    if (attrs==INVALID_FILE_ATTRIBUTES)
-        return false;
-
-    if (bSet)
-        attrs |=  FILE_ATTRIBUTE_HIDDEN;
-    else
-        attrs &= ~FILE_ATTRIBUTE_HIDDEN;
-
-    return SetFileAttributesW(preparedName.c_str(), attrs) ? true : false;
-}
-
-//----------------------------------------------------------------------------
-inline
-bool fileAttributeHiddenGet(const std::string &fname)
-{
-    auto preparedName = umba::filename::prepareForNativeUsage(umba::filesys::impl_helpers::encodeToNative(fname));
-    DWORD attrs = GetFileAttributesW(preparedName.c_str());
-    if (attrs==INVALID_FILE_ATTRIBUTES)
-        return false;
-
-    return (attrs&INVALID_FILE_ATTRIBUTES) ? true : false;
-}
-
-//----------------------------------------------------------------------------
-
-
-
-//----------------------------------------------------------------------------
-inline
-bool shellParamShowHiddenFilesSet(bool bShow)
-{
-    SHELLSTATE  shSt = {};
-    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, FALSE);
-    shSt.fShowAllObjects = bShow ? TRUE : FALSE;
-    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, TRUE);
-    return true;
-    // fShowAllObjects/SSF_SHOWALLOBJECTS   - TRUE to show all objects, including hidden files and folders. FALSE to hide hidden files and folders.
-    // fShowSuperHidden/SSF_SHOWSUPERHIDDEN - TRUE to show operating system files - 
-    // fShowSysFiles/SSF_SHOWSYSFILES       - TRUE to show system files, FALSE to hide them.
-
-}
-
-//----------------------------------------------------------------------------
-inline
-bool shellParamShowHiddenFilesGet(bool bShow)
-{
-    UMBA_USED(bShow);
-    SHELLSTATE  shSt = {};
-    SHGetSetSettings(&shSt, SSF_SHOWALLOBJECTS, FALSE);
-    return shSt.fShowAllObjects ? true : false;
-}
-
-//----------------------------------------------------------------------------
-
-
-
-//----------------------------------------------------------------------------
-
-} // namespace win32
-
-#endif
-
-//----------------------------------------------------------------------------
 
 
 

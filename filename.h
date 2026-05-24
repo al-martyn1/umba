@@ -1380,10 +1380,10 @@ StringType getPath( const StringType &s )
 {
     typename StringType::size_type driveSepPos  = s.npos;
     typename StringType::size_type pathSepPos   = s.npos;
-    //typename StringType::size_type pathStartPos = 0;
+    typename StringType::size_type pathStartPos = 0;
 
-    //findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos, 0, 0, &pathStartPos);
-    findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos);
+    findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos, 0, 0, &pathStartPos);
+    //findAllFullPathComponentSeparators(s, &driveSepPos, &pathSepPos);
 
     if (pathSepPos!=s.npos)
     {
@@ -1399,7 +1399,10 @@ StringType getPath( const StringType &s )
         return StringType(s, 0, driveSepPos+1);
     }
 
-    return s;
+    if (pathStartPos!=s.npos) // У нас есть какой-то префикс, хотя нет обнаруженного разделителя пути
+        return s; // Значит, надо вернуть всё, что есть, это будет считаться путём
+
+    return StringType(); // иначе - пустая строка, пути нет
 
 }
 

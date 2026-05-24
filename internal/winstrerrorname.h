@@ -2489,7 +2489,18 @@ const std::unordered_map<unsigned, const char*>& getStrErrorNameMap()
 //     return m;
 // }
 
+inline
+std::string getStrErrorNameStr(unsigned code)
+{
+    const auto &m = umba::win32::getStrErrorNameMap();
+    auto it = m.find((unsigned)code);
+    if (it!=m.end())
+    {
+        return it->second;
+    }
 
+    return std::string();
+}
 
 } // namespace win32
 } // namespace umba
