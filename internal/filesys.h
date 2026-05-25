@@ -432,7 +432,7 @@ struct FileStat
     {
         FileStat fileStat;
 
-        if (findData.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))
+        if (findData.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY)) // |FILE_ATTRIBUTE_REPARSE_POINT - репарс поинт может быть как файлом, так и каталогом, 
             fileStat.fileType = FileType::FileTypeDir;
         else
             fileStat.fileType = FileType::FileTypeFile;
@@ -460,7 +460,7 @@ struct FileStat
     {
         FileStat fileStat;
 
-        if (findData.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))
+        if (findData.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY)) // |FILE_ATTRIBUTE_REPARSE_POINT
             fileStat.fileType = FileType::FileTypeDir;
         else
             fileStat.fileType = FileType::FileTypeFile;
@@ -2066,7 +2066,7 @@ StringType getCurrentDrive()
         DWORD res = GetTempPathA( bufSize, &buf[0]);
         // Если 0 - это ошибка, если > размера буфера - не влезло - сорян, если не хватило 4Кб под имя фолдера, что-то пошло явно не так
         if (!res || res>bufSize)
-            return std::string("C:\\Temp");
+            return std::string(); // std::string("C:\\Temp");
 
         return std::string( &buf[0], res );
     }
@@ -2082,7 +2082,7 @@ StringType getCurrentDrive()
         DWORD res = GetTempPathW( bufSize, &buf[0]);
         // Если 0 - это ошибка, если > размера буфера - не влезло - сорян, если не хватило 4Кб под имя фолдера, что-то пошло явно не так
         if (!res || res>bufSize)
-            return std::wstring(L"C:\\Temp");
+            return std::wstring(); // std::wstring(L"C:\\Temp");
 
         return std::wstring( &buf[0], res );
     }
@@ -2133,16 +2133,33 @@ StringType getTempFolderPath()
 {
     #if defined(WIN32) || defined(_WIN32)
 
-        return getTempFolderPathFromWinApi<StringType>();
+        StringType res = getTempFolderPathFromWinApi<StringType>();
+
+        if (!res.empty())
+            return res;
+
+        if (getVar(make_string<StringType>("TEMP"), res))
+        {
+            return res;
+        }
+
+        if (getVar(make_string<StringType>("TMP"), res))
+        {
+            return res;
+        }
+
+        return make_string<StringType>("C:\\Temp");
 
     #else
 
         // Пытаемся найти юзерский TEMP
         StringType res;
+
         if (getVar(make_string<StringType>("TMPDIR"), res))
         {
             return res;
         }
+
         if (getVar(make_string<StringType>("TMP"), res))
         {
             return res;
