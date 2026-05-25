@@ -1399,7 +1399,7 @@ StringType getPath( const StringType &s )
         return StringType(s, 0, driveSepPos+1);
     }
 
-    if (pathStartPos!=s.npos) // У нас есть какой-то префикс, хотя нет обнаруженного разделителя пути
+    if (pathStartPos!=0) // У нас есть какой-то префикс, хотя нет обнаруженного разделителя пути
         return s; // Значит, надо вернуть всё, что есть, это будет считаться путём
 
     return StringType(); // иначе - пустая строка, пути нет
