@@ -980,11 +980,15 @@ std::string findExecutableInFolder(const std::string &path, const std::string &e
 inline
 void findExecutable(const std::string &exeName, std::vector<std::string> &foundExes, const std::string &curDirOverride, FindExecutableFlags findFlags)
 {
-    if (!filename::getPath(exeName).empty())
     {
-        // if (filesys::isPathFile(exeName)) // Или не надо проверять, пусть получит ошибку при запуске, раз задал сам явно полный путь?
-            foundExes.push_back(exeName);
-        return;
+        auto exePath = filename::getPath(exeName);
+
+        if (!exePath.empty())
+        {
+            // if (filesys::isPathFile(exeName)) // Или не надо проверять, пусть получит ошибку при запуске, раз задал сам явно полный путь?
+                foundExes.push_back(exeName);
+            return;
+        }
     }
 
     std::basic_string<FindExecutableFlags> flagList;
