@@ -2138,34 +2138,34 @@ StringType getTempFolderPath()
         if (!res.empty())
             return res;
 
-        if (getVar(make_string<StringType>("TEMP"), res))
+        if (getVar(string::make_string<StringType>("TEMP"), res))
         {
             return res;
         }
 
-        if (getVar(make_string<StringType>("TMP"), res))
+        if (getVar(string::make_string<StringType>("TMP"), res))
         {
             return res;
         }
 
-        return make_string<StringType>("C:\\Temp");
+        return string::make_string<StringType>("C:\\Temp");
 
     #else
 
         // Пытаемся найти юзерский TEMP
         StringType res;
 
-        if (getVar(make_string<StringType>("TMPDIR"), res))
+        if (getVar(string::make_string<StringType>("TMPDIR"), res))
         {
             return res;
         }
 
-        if (getVar(make_string<StringType>("TMP"), res))
+        if (getVar(string::make_string<StringType>("TMP"), res))
         {
             return res;
         }
 
-        return make_string<StringType>("/tmp");
+        return string::make_string<StringType>("/tmp");
 
     #endif
 }
