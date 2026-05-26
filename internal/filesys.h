@@ -2165,6 +2165,11 @@ StringType getTempFolderPath()
             return res;
         }
 
+        if (getVar(string::make_string<StringType>("TEMP"), res))
+        {
+            return res;
+        }
+
         return string::make_string<StringType>("/tmp");
 
     #endif
