@@ -37,11 +37,11 @@ set(MODULE_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 
 file(GLOB_RECURSE sources "${MODULE_ROOT}/*.cpp")
 list(FILTER sources EXCLUDE REGEX ".*CMakeCXXCompilerId\\.cpp$")
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "Source Files" FILES ${sources})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" PREFIX "Source Files" FILES ${sources})
 
 file(GLOB_RECURSE headers "${MODULE_ROOT}/*.h")
 list(FILTER headers EXCLUDE REGEX ".*zz_.*\\.h$")
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "Header Files" FILES ${headers})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" PREFIX "Header Files" FILES ${headers})
 
 
 add_library(${PROJECT_NAME} ${sources} ${headers})
