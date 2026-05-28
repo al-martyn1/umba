@@ -1688,10 +1688,26 @@ StringType flattenPath( StringType       fileName
     //     }
     // }
 
-    if (ext.empty())
-        return umba::string_plus::merge(parts,flattenChar);
+    auto resTmp = ext.empty() ? umba::string_plus::merge(parts,flattenChar) : appendExt(umba::string_plus::merge(parts,flattenChar), ext);
 
-    return appendExt(umba::string_plus::merge(parts,flattenChar), ext);
+    static const StringType restrictedChars = string::make_string<StringType>("\\/:*?\"<>&|- ");
+
+    for(auto &ch : resTmp)
+    {
+        if (restrictedChars.find(ch)!=restrictedChars.npos)
+            ch = StringType::value_type('_');
+    }
+
+    StringType res; res.reserve(resTmp.size());
+    for(auto &ch : resTmp)
+    {
+        if (!res.empty() && ch==StringType::value_type('_') && ch==res.back())
+            continue;
+
+        res.push_back(ch);
+    }
+
+    return res;
 }
 
 //----------------------------------------------------------------------------
