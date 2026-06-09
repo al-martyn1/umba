@@ -163,6 +163,7 @@ void setWarningDisabled(const std::string &warnType, bool bDisabled=true)
 }
 
 //----------------------------------------------------------------------------
+inline
 bool addRemoveWarningOptions( const std::set<std::string> &allOpts
                             , const std::string &optString
                             , std::string &unknownOpt
@@ -205,6 +206,7 @@ void setInfoDisabled(const std::string &warnType, bool bDisabled=true)
 }
 
 //----------------------------------------------------------------------------
+inline
 bool addRemoveInfoOptions( const std::set<std::string> &allOpts
                          , const std::string &optString
                          , std::string &unknownOpt
