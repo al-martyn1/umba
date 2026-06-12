@@ -162,6 +162,11 @@ bool clipboardTextGet(StringType &text, HWND hWndNewOwner=0)
 
     ::GlobalUnlock(hglb);
 
+    while(!text.empty() && text.back()==(char_type)==0)
+    {
+        text.erase(text.size()-1);
+    }
+
     return true;
 
 }
@@ -196,7 +201,7 @@ bool clipboardTextSet(const StringType &text, HWND hWndNewOwner=0)
 
     char_type* lpGlobalData = (char_type*)::GlobalLock(hglb);
 
-    text.copy(lpGlobalData, text.size());
+    text.copy(lpGlobalData, text.size()+1); // Копируем также и ноль
     lpGlobalData[text.size()] = 0;
 
     ::GlobalUnlock(hglb);
