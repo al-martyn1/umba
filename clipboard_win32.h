@@ -162,7 +162,7 @@ bool clipboardTextGet(StringType &text, HWND hWndNewOwner=0)
 
     ::GlobalUnlock(hglb);
 
-    while(!text.empty() && text.back()==(char_type)==0)
+    while(!text.empty() && text.back()==(char_type)0)
     {
         text.erase(text.size()-1);
     }
