@@ -3843,7 +3843,7 @@ struct CommandInfo
         traverseCommandSequense( cmdSequence
                                , [&](auto pCommandInfo) -> bool
                                  {
-                                     for(const auto opt: optNames)
+                                     for(const auto &opt: optNames)
                                      {
                                          if (pCommandInfo->allowedOptions.find(opt)!=pCommandInfo->allowedOptions.end())
                                          {
@@ -4825,6 +4825,9 @@ public:
 
 
         //--------------------------------------------------------------------------------------------------------------------
+#if defined(__GNUC__)
+    #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
         auto code_          = [&](BE be) -> std::string                     { return s_code_(helpStyle, be); };
         auto inline_code_   = [&](BE be) -> std::string                     { return s_inline_code_(helpStyle, be); };
         auto codeNext_      = [&](BE be) -> std::string                     { return s_codeNext_(helpStyle, be); };
@@ -4838,6 +4841,9 @@ public:
         auto tt             = [&](const std::string &str) -> std::string    { return s_tt(helpStyle, str); };
         auto listItem       = [&](const std::string &str) -> std::string    { return s_listItem(helpStyle, str); };
         auto heading        = [&](const std::string &str, std::size_t level) -> std::string { return s_heading(helpStyle, str, level); };
+#if defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 
         auto formatParas = [&](const std::string &paras, std::size_t indend)
