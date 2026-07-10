@@ -6,5 +6,11 @@
     Repository: https://github.com/al-martyn1/umba
 */
 
-#include "push.h"
-#include "disable_grpc_warnings.h"
+#if defined(_MSC_VER)
+
+    #include "disable_C4371.h"
+
+#elif defined(__GNUC__)
+
+#endif
+

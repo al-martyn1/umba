@@ -7,4 +7,4 @@
 */
 
 #include "push.h"
-#include "disable_grpc_warnings.h"
+#include "disable_C4371.h"
