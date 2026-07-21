@@ -6,6 +6,8 @@
     Repository: https://github.com/al-martyn1/umba
 */
 
+#include "disable_C4996.h"
+
 #if defined(__GNUC__)
     //#if (__GNUC__>7) //TODO: Проверить на 8/9/10/11/12 ой версии GCC - на 13ой точно есть
         #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
