@@ -47,6 +47,8 @@
 
 #endif
 
+#define UMBA_PROGRAM_LOCATION_DEF_LOG_FOLDER_NAME       "log"
+#define UMBA_PROGRAM_LOCATION_DEF_CACHE_FOLDER_NAME     "cache"
 
 
 // umba::program_location::
@@ -233,6 +235,8 @@ struct ProgramLocation
     StringType  binPath    ; //!< App bin path, eg C:\Program Files\AppName\bin (or may be the same as rootPath) or \usr\opt\AppName\bin
     StringType  confPath   ; //!< App conf path, depending on custom settings, eg  C:\Program Files\AppName\conf or \usr\opt\AppName\conf
     StringType  userConf   ; //!< User config file/folder, eg C:\Users\UserName\.exeName
+    StringType  logPath    ; //!< App log path, depending on custom settings, eg  C:\Program Files\AppName\log or \usr\opt\AppName\log
+    StringType  cachePath  ; //!< App log path, depending on custom settings, eg  C:\Program Files\AppName\cache or \usr\opt\AppName\cache
 
     StringType  cwd        ; //!< Current working dir
 
@@ -560,7 +564,9 @@ template<typename StringType> inline
 ProgramLocation<StringType> getProgramLocationImpl( const StringType &argv0
                                                   , bool             useUserFolder    = false        //!< If false single file(s) used
                                                   , StringType       overrideExeName  = StringType() //!< Used to make single user conf name for multiple exe's
-                                                  , const StringType &confFolderName  = umba::string_plus::make_string<StringType>(UMBA_PROGRAM_LOCATION_DEF_CONF_FOLDER_NAME)
+                                                  , const StringType &confFolderName  = umba::string_plus::make_string<StringType>(UMBA_PROGRAM_LOCATION_DEF_CONF_FOLDER_NAME )
+                                                  , const StringType &logFolderName   = umba::string_plus::make_string<StringType>(UMBA_PROGRAM_LOCATION_DEF_LOG_FOLDER_NAME  )
+                                                  , const StringType &cacheFolderName = umba::string_plus::make_string<StringType>(UMBA_PROGRAM_LOCATION_DEF_CACHE_FOLDER_NAME)
                                                   )
 {
     UMBA_USED(argv0);
@@ -583,13 +589,22 @@ ProgramLocation<StringType> getProgramLocationImpl( const StringType &argv0
 
     loc.exeName     = exeName;
 
+
     StringType userHomeDir = umba::filesys::nameConvert<StringType>(umba::filesys::getCurrentUserHomeDirectory());
 
     #if !defined(UMBA_PROGRAM_LOCATION_OVERRIDEN_EXECUTABLE_NAME_FOR_CONFIGS)
         loc.userConf    = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), exeName) );
+        loc.logPath     = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), exeName) );
+        loc.cachePath   = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), exeName) );
     #else
         loc.userConf    = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), umba::filesys::nameConvert<StringType>(UMBA_PROGRAM_LOCATION_OVERRIDEN_EXECUTABLE_NAME_FOR_CONFIGS)) );
+        loc.logPath     = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), umba::filesys::nameConvert<StringType>(UMBA_PROGRAM_LOCATION_OVERRIDEN_EXECUTABLE_NAME_FOR_CONFIGS)) );
+        loc.cachePath   = umba::filename::appendPath(userHomeDir, umba::filename::appendExt(StringType(), umba::filesys::nameConvert<StringType>(UMBA_PROGRAM_LOCATION_OVERRIDEN_EXECUTABLE_NAME_FOR_CONFIGS)) );
     #endif
+
+    loc.logPath     = umba::filename::appendPath(loc.logPath  , logFolderName  );
+    loc.cachePath   = umba::filename::appendPath(loc.cachePath, cacheFolderName);
+
 
     loc.cwd         = umba::filesys::nameConvert<StringType>(umba::filesys::getCurrentDirectory());
 
