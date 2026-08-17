@@ -1054,10 +1054,10 @@ void findExecutable(const std::string &exeName, std::vector<std::string> &foundE
         if (flag==FindExecutableFlags::regHklm || flag==FindExecutableFlags::regHkcu)
         {
             #if defined(WIN32) || defined(_WIN32)
-            std::string regKeyName = exeName;
-            auto ext = filename::getExt(exeName);
+            std::wstring regKeyName = fromUtf8(exeName);
+            auto ext = filename::getExt(regKeyName);
             if (ext.empty())
-                regKeyName = filename::appendExt(exeName, std::string("exe"));
+                regKeyName = filename::appendExt(regKeyName, std::wstring(L"exe"));
 
             std::wstring exeFullName;
             if (umba::win32::regGetValue( flag==FindExecutableFlags::regHklm ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
@@ -1142,6 +1142,91 @@ void findExecutable(const char *exeName, std::vector<std::string> &foundExes)
 }
 
 //----------------------------------------------------------------------------
+
+
+
+//----------------------------------------------------------------------------
+bool regExecutable( const std::string &exeFullPathName_
+                  , bool               bSystem = false
+                  , const std::string &exeName_ = std::string()
+                  )
+{
+    #if defined(WIN32) || defined(_WIN32)
+
+    auto exeFullPathName = fromUtf8(exeFullPathName_);
+    auto exeName         = fromUtf8(exeName_);
+
+    if (exeName.empty())
+    {
+        exeName = filename::getFileName(exeFullPathName);
+    }
+
+    auto ext = filename::getExt(exeName);
+    if (ext.empty())
+        exeName = filename::appendExt(exeName, std::wstring(L"exe"));
+
+    exeFullPathName = filename::makeCanonical(exeFullPathName, L'\\');
+
+    auto keyStr = std::wstring(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\") + exeName; // subKeyName
+
+    bool 
+    regRes = umba::win32::regSetValue( bSystem ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
+                                     , keyStr
+                                     , std::wstring() // name
+                                     , exeFullPathName // value
+                                     );
+    if (!regRes)
+        return regRes;
+
+    auto exePath = filename::makeCanonical(filename::getPath(exeFullPathName), L'\\');
+
+    regRes = umba::win32::regSetValue( bSystem ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
+                                     , keyStr
+                                     , std::wstring(L"Path") // name
+                                     , exePath // value
+                                     );
+
+    return regRes;
+
+    #else
+
+    return false; // Возможно, надо сделать симлинк, но пока не будем заморачиваться
+
+    #endif
+}
+
+//             if (umba::win32::regGetValue( flag==FindExecutableFlags::regHklm ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
+//                                         , std::wstring(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + string::make_string<std::wstring>(regKeyName))
+//                                         , std::wstring()
+//                                         , exeFullName
+//                                         )
+//  
+// bool regSetValue(HKEY hKey, const std::string &name, const std::string &value, LSTATUS *pStatus=0, bool expandSz=false)
+// bool regSetValue(HKEY hKey, const std::wstring &name, const std::wstring &value, LSTATUS *pStatus=0, bool expandSz=false)
+
+            // #if defined(WIN32) || defined(_WIN32)
+            // std::string regKeyName = exeName;
+            // auto ext = filename::getExt(exeName);
+            // if (ext.empty())
+            //     regKeyName = filename::appendExt(exeName, std::string("exe"));
+            //  
+            // std::wstring exeFullName;
+            // if (umba::win32::regGetValue( flag==FindExecutableFlags::regHklm ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER
+            //                             , std::wstring(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + string::make_string<std::wstring>(regKeyName))
+            //                             , std::wstring()
+            //                             , exeFullName
+            //                             )
+            //    )
+            // {
+            //     auto foundExe = toUtf8(exeFullName);
+            //     if (foundExesSet.find(foundExe)==foundExesSet.end())
+            //     {
+            //         foundExes.push_back(foundExe);
+            //         foundExesSet.insert(foundExe);
+            //     }
+            // }
+            // #endif
+
 
 
 

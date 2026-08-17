@@ -97,7 +97,7 @@ const std::vector<StringType>& getUninstallRegPathsVector()
 
 //----------------------------------------------------------------------------
 inline
-HKEY regCreateKey(HKEY hKeyRoot, const std::wstring &path, REGSAM samDesired)
+HKEY regCreateKey(HKEY hKeyRoot, const std::wstring &path, REGSAM samDesired, LSTATUS *pStatus=0)
 {
     // https://learn.microsoft.com/ru-ru/windows/win32/winprog64/accessing-an-alternate-registry-view
     // Не надо тут делать, пусть юзер сам думает
@@ -119,18 +119,20 @@ HKEY regCreateKey(HKEY hKeyRoot, const std::wstring &path, REGSAM samDesired)
                                     , &hKeyRes
                                     , &dwDisposition
                                     );
+    if (pStatus)
+        *pStatus = status;
+
     if (status!=ERROR_SUCCESS)
     {
         return 0;
     }
 
     return hKeyRes;
-
 }
 
 //----------------------------------------------------------------------------
 inline
-HKEY regCreateKey(HKEY hKeyRoot, const std::string &path, REGSAM samDesired)
+HKEY regCreateKey(HKEY hKeyRoot, const std::string &path, REGSAM samDesired, LSTATUS *pStatus=0)
 {
     // Не надо тут делать, пусть юзер сам думает
     // if (isWindows32OnWindows64()) // 32х-битные системы сейчас конечно уже экзотика, но на всякий случай - я же и на XP могу работать
@@ -151,13 +153,15 @@ HKEY regCreateKey(HKEY hKeyRoot, const std::string &path, REGSAM samDesired)
                                     , &hKeyRes
                                     , &dwDisposition
                                     );
+    if (pStatus)
+        *pStatus = status;
+
     if (status!=ERROR_SUCCESS)
     {
         return 0;
     }
 
     return hKeyRes;
-
 }
 
 //----------------------------------------------------------------------------
@@ -697,6 +701,42 @@ bool regSetValue(HKEY hKey, const std::wstring &name, const std::wstring &value,
 
     return st==ERROR_SUCCESS;
 }
+
+//----------------------------------------------------------------------------
+template<typename StringType> inline
+bool regSetValue( HKEY hKey
+                , const StringType &subKeyName
+                , const StringType &name
+                , const StringType &value
+                , LSTATUS          *pStatus=0
+                , bool             expandSz=false
+                , REGSAM           samDesired = 0
+                )
+{
+    samDesired |= KEY_SET_VALUE | KEY_CREATE_SUB_KEY;
+
+    LSTATUS status = ERROR_SUCCESS;
+    HKEY hSubKey = regCreateKey( hKey
+                               , subKeyName
+                               , samDesired
+                               , &status
+                               );
+    if (status!=ERROR_SUCCESS)
+        return false;
+
+    bool bRes = regSetValue(hSubKey, name, value, &status, expandSz);
+
+    if (pStatus)
+       *pStatus = status;
+
+    RegCloseKey(hSubKey);
+
+    return bRes;
+}
+
+//----------------------------------------------------------------------------
+
+
 
 //----------------------------------------------------------------------------
 template<typename StringType>
