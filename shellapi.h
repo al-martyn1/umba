@@ -856,7 +856,7 @@ int callSystem(const std::string &cmd, const std::vector<std::string> &cmdArgs, 
 //----------------------------------------------------------------------------
 enum class FindExecutableFlags : std::uint32_t
 {
-    none           = 0x0000,
+    none           = 0x0020, // noPathSearch
 
     regHklm        = 0x0001, // Win32 only: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
     regHkcu        = 0x0002, // Win32 only: HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
@@ -868,7 +868,7 @@ enum class FindExecutableFlags : std::uint32_t
     pathSearch     = 0x0000, // search in PATH
     noPathSearch   = 0x0020, // don't search in PATH
 
-    nativeOnly     = 0x0000, // native binary executrables only
+    nativeOnly     = 0x0000, // native binary executables only
     noNativeOnly   = 0x0040, // allow any executable
 
 #if defined(WIN32) || defined(_WIN32)
@@ -1233,7 +1233,7 @@ bool regExecutable( const std::string &exeFullPathName_
 //----------------------------------------------------------------------------
 enum class SpawnProcessFlags : std::uint32_t
 {
-    none                   = static_cast<std::uint32_t>(FindExecutableFlags::none),
+    none                   = static_cast<std::uint32_t>(FindExecutableFlags::none), // noPathSearch
  
     regHklm                = static_cast<std::uint32_t>(FindExecutableFlags::regHklm), // Win32 only: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
     regHkcu                = static_cast<std::uint32_t>(FindExecutableFlags::regHkcu), // Win32 only: HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
@@ -1252,7 +1252,7 @@ enum class SpawnProcessFlags : std::uint32_t
 
     argvAlready            = 0x0100,  // executable already in argv array
     argvFromCmd            = 0x0200,  // insert executable file name from cmd argument, not full found name
-    argvFromFound          = 0x0000,  // use first found full exe name to set first argv
+    argvFromFound          = 0x0000,  // use first found full exe name to set first argv, default behavior
 
     argvOptMask            = 0x0300
 
