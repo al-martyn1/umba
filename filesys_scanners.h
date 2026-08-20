@@ -413,6 +413,7 @@ void scanFolders( const AppConfigType            &appConfig        // with inclu
                , scanRecurse
                , logFoundHeader
                , addFolders
+               , compareOnlyFilenames
                );
 
     #if 0
