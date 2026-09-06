@@ -929,7 +929,7 @@ std::string findExecutableInFolder(const std::string &path, const std::string &e
 
     return std::string();
 
-#else
+#else // Windows
 
     std::vector<std::string> extList;
 
@@ -943,6 +943,8 @@ std::string findExecutableInFolder(const std::string &path, const std::string &e
         std::string pathExtListStr;
         env::getVar(std::string("PATHEXT"), pathExtListStr);
         extList = filename::splitPathList(pathExtListStr);
+
+        // !!! Если EXE/COM не присутствуют в списке, надо добавить
     }
 
     for(const auto &extFromList : extList)
@@ -1070,8 +1072,12 @@ void findExecutable(const std::string &exeName, std::vector<std::string> &foundE
                 auto foundExe = toUtf8(exeFullName);
                 if (foundExesSet.find(foundExe)==foundExesSet.end())
                 {
-                    foundExes.push_back(foundExe);
-                    foundExesSet.insert(foundExe);
+                    // Добавляем только то, что реально существует
+                    if ( /* umba::filesys::isPathExist(foundExe) &&  */ umba::filesys::isPathFile(foundExe))
+                    {
+                        foundExes.push_back(foundExe);
+                        foundExesSet.insert(foundExe);
+                    }
                 }
             }
             #endif
