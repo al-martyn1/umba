@@ -710,7 +710,102 @@ void writeUmbaEventLogNow( const std::string &eventName, std::string eventMsg, s
 //----------------------------------------------------------------------------
 //! Производит экранирование одиночного аргумента для вызова в командной строке.
 inline
-std::string escapeCommandLineArgument(const std::string &str)
+std::string escapeCommandLineArgument(const std::string &arg)
+{
+
+#if defined(WIN32) || defined(_WIN32)
+
+    // Parsing C command-line arguments - https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170
+    //                                    https://learn.microsoft.com/ru-ru/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170
+
+    // main function and command-line arguments - https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170
+    //                                            https://learn.microsoft.com/ru-ru/cpp/cpp/main-function-command-line-args?view=msvc-170
+
+    // Long filenames or paths with spaces require quotation marks - https://learn.microsoft.com/en-us/troubleshoot/windows-server/setup-upgrade-and-drivers/filenames-with-spaces-require-quotation-mark
+    //                                                               https://learn.microsoft.com/ru-ru/troubleshoot/windows-server/setup-upgrade-and-drivers/filenames-with-spaces-require-quotation-mark
+
+    // CommandLineToArgvW function (shellapi.h) - https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw
+
+    // Everyone quotes command line arguments the wrong way - https://learn.microsoft.com/nl-be/archive/blogs/twistylittlepassagesallalike/everyone-quotes-command-line-arguments-the-wrong-way#1
+
+    bool needEscape = false;
+    if (arg.find_first_of(" \"")!=arg.npos)
+       needEscape = true;
+
+    if (arg.empty())
+       needEscape = true;
+
+    if (!needEscape)
+        return arg;
+
+    //using CharType = typename StringType::value_type;
+
+    // std::string res; res.reserve(str.size());
+    // res.append(1, '\"');
+    // for(auto ch : str)
+    // {
+    //     if (ch=='\"')
+    //         res.append(2, '\"');
+    //     else
+    //         res.append(1, ch);
+    // }
+    // res.append(1, '\"');
+    //  
+    // return res;
+
+    std::string result;
+    result.reserve(arg.size() + 2);
+    result.push_back('"');
+
+    size_t backslashCount = 0;
+    for (auto ch : arg)
+    {
+        if (ch == '\\')
+        {
+            ++backslashCount;
+            result.push_back(ch);
+        }
+        else if (ch == '"')
+        {
+            // Добавляем столько же обратных слешей, сколько уже накопилось,
+            // чтобы они остались литералами, затем добавляем экранирующий слеш перед кавычкой.
+            for (size_t i = 0; i < backslashCount; ++i)
+            {
+                result.push_back('\\');
+            }
+            // Теперь добавляем экранирующий слеш и саму кавычку.
+            result.push_back('\\');
+            result.push_back('"');
+            backslashCount = 0;
+        }
+        else
+        {
+            // Обычный символ
+            backslashCount = 0;
+            result.push_back(ch);
+        }
+    }
+
+    // Если аргумент заканчивается на обратные слеши, их нужно удвоить перед закрывающей кавычкой.
+    for (size_t i = 0; i < backslashCount; ++i)
+    {
+        result.push_back('\\');
+    }
+    result.push_back('"');
+    return result;
+
+#else
+
+    return arg; // Для *nix - пока ничего не делаем, надо разбираться
+
+#endif
+
+}
+
+//----------------------------------------------------------------------------
+//! Производит экранирование одиночного аргумента для вызова в командной строке.
+inline
+std::wstring escapeCommandLineArgument(const std::wstring &arg)
 {
 
 #if defined(WIN32) || defined(_WIN32)
@@ -718,30 +813,75 @@ std::string escapeCommandLineArgument(const std::string &str)
     // http://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170
 
     bool needEscape = false;
-    if (str.find_first_of(" \"")!=str.npos)
+    if (arg.find_first_of(L" \"")!=arg.npos)
+       needEscape = true;
+
+    if (arg.empty())
        needEscape = true;
 
     if (!needEscape)
-        return str;
+        return arg;
 
     //using CharType = typename StringType::value_type;
 
-    std::string res; res.reserve(str.size());
-    res.append(1, '\"');
-    for(auto ch : str)
-    {
-        if (ch=='\"')
-            res.append(2, '\"');
-        else
-            res.append(1, ch);
-    }
-    res.append(1, '\"');
+    // std::wstring res; res.reserve(str.size());
+    // res.append(1, L'\"');
+    // for(auto ch : str)
+    // {
+    //     if (ch==L'\"')
+    //         res.append(2, L'\"');
+    //     else
+    //         res.append(1, ch);
+    // }
+    // res.append(1, L'\"');
+    //  
+    // return res;
 
-    return res;
+    std::wstring result;
+    result.reserve(arg.size() + 2);
+    result.push_back(L'"');
+
+    size_t backslashCount = 0;
+    for (auto ch : arg)
+    {
+        if (ch == L'\\')
+        {
+            ++backslashCount;
+            result.push_back(ch);
+        }
+        else if (ch == L'"')
+        {
+            // Добавляем столько же обратных слешей, сколько уже накопилось,
+            // чтобы они остались литералами, затем добавляем экранирующий слеш перед кавычкой.
+            for (size_t i = 0; i < backslashCount; ++i)
+            {
+                result.push_back(L'\\');
+            }
+            // Теперь добавляем экранирующий слеш и саму кавычку.
+            result.push_back(L'\\');
+            result.push_back(L'"');
+            backslashCount = 0;
+        }
+        else
+        {
+            // Обычный символ
+            backslashCount = 0;
+            result.push_back(ch);
+        }
+    }
+
+    // Если аргумент заканчивается на обратные слеши, их нужно удвоить перед закрывающей кавычкой.
+    for (size_t i = 0; i < backslashCount; ++i)
+    {
+        result.push_back(L'\\');
+    }
+    result.push_back(L'"');
+    return result;
+
 
 #else
 
-    return str; // Для *nix - пока ничего не делаем, надо разбираться
+    return arg; // Для *nix - пока ничего не делаем, надо разбираться
 
 #endif
 
@@ -753,7 +893,7 @@ inline
 std::string makeSystemFunctionCommandString(const std::string &cmd, std::vector<std::string> cmdArgs)
 {
     if (!cmd.empty())
-        cmdArgs.insert(cmdArgs.begin(), cmd);
+        cmdArgs.insert(cmdArgs.begin(), escapeCommandLineArgument(cmd));
 
     for(auto &cmdArg : cmdArgs)
     {
@@ -789,7 +929,7 @@ std::string makeSystemFunctionCommandString(const std::string &cmd)
 //----------------------------------------------------------------------------
 //! Производит вызов функции "system". Командная строка должна быть соответственно подготовлена (экранирование и тп)
 inline
-int callSystem(const std::string &cmd, std::string *pErrMsg=0, bool allocateConsole=true)
+int callSystemImpl(const std::string &cmd, std::string *pErrMsg=0, bool allocateConsole=true)
 {
     // system returns the value that is returned by the command interpreter.
     // It returns the value 0 only if the command interpreter returns the value 0.
@@ -843,10 +983,15 @@ int callSystem(const std::string &cmd, std::string *pErrMsg=0, bool allocateCons
 }
 
 //----------------------------------------------------------------------------
+// inline
+// int callSystem(const std::string &cmd, std::string *pErrMsg=0, bool allocateConsole=true)
+// {
+// }
+//----------------------------------------------------------------------------
 inline
 int callSystem(const std::string &cmd, const std::vector<std::string> &cmdArgs, std::string *pErrMsg=0, bool allocateConsole=true)
 {
-    return callSystem(makeSystemFunctionCommandString(cmd, cmdArgs), pErrMsg, allocateConsole);
+    return callSystemImpl(makeSystemFunctionCommandString(cmd, cmdArgs), pErrMsg, allocateConsole);
 }
 
 //----------------------------------------------------------------------------
@@ -1323,18 +1468,20 @@ std::uintptr_t spawnProcess( const std::string &cmd, const std::vector<std::stri
         }
         else if (argvHow==SpawnProcessFlags::argvFromCmd)
         {
-            argsWide.push_back(fromUtf8(cmd));
+            argsWide.push_back(escapeCommandLineArgument(fromUtf8(cmd)));
         }
         else if (argvHow==SpawnProcessFlags::argvFromFound)
         {
-            argsWide.push_back(fromUtf8(foundExes.front()));
+            argsWide.push_back(escapeCommandLineArgument(fromUtf8(foundExes.front())));
         }
 
 
         for(auto &&a : cmdArgs)
         {
-            argsWide.push_back(fromUtf8(a));
+            //argsWide.push_back(fromUtf8(a));
+            argsWide.push_back(escapeCommandLineArgument(fromUtf8(a)));
         }
+
 
         std::vector<const wchar_t*> argv; argv.reserve(argsWide.size()+1);
         for(const auto& wa : argsWide)
