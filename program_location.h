@@ -162,10 +162,45 @@ void detectLocation( StringType &exeFullName, StringType &progBinPath, StringTyp
             // При отладке, когда бинарники не разложены как в дистре, а лежат по каталогам конфигураций сборки в общем надкаталоге,
             // удобно иметь иметь conf на уровень выше, чтобы он был общий для всех сборок
 
+            using namespace umba::string_plus;
+
             auto cmpHelper = [](const char *strForCmp)
             {
-                return umba::string_plus::tolower_copy( umba::string_plus::make_string<StringType>(strForCmp) );
+                using namespace umba::string_plus;
+                return tolower_copy( make_string<StringType>(strForCmp) );
             };
+
+            // .out/toolchain/platform/config
+
+            std::vector<StringType> outFolderNames;
+            outFolderNames.push_back(make_string<StringType>(".out"));
+            outFolderNames.push_back(make_string<StringType>("out"));
+            outFolderNames.push_back(make_string<StringType>(".build"));
+            outFolderNames.push_back(make_string<StringType>("build"));
+            outFolderNames.push_back(make_string<StringType>(".build_all"));
+            outFolderNames.push_back(make_string<StringType>("build_all"));
+
+            StringType tmpPath = progBinPath;
+
+            for(auto i=0u; i!=4; ++i)
+            {
+                StringType exeFolderNameOnly = tolower_copy(umba::filename::getFileName(tmpPath));
+                for(auto outName : outFolderNames)
+                {
+                    if (exeFolderNameOnly==outName)
+                    {
+                        progRootPath = umba::filename::getPath(tmpPath);
+                        return;
+                    }
+                }
+
+                auto nextTmpPath = umba::filename::getPath(tmpPath);
+                if (nextTmpPath==tmpPath)
+                    break;
+
+                tmpPath = nextTmpPath;
+            }
+
 
             StringType exeFolderNameOnly = umba::string_plus::tolower_copy /* toLower */ (umba::filename::getFileName( progBinPath ));
 
