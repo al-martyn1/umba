@@ -93,6 +93,44 @@ namespace umba
 
 //============================================================================
 //
+//  Exception — базовый класс для всех исключений библиотеки umba
+//
+//============================================================================
+
+//----------------------------------------------------------------------------
+/*!
+    \brief Маркерный базовый класс для всех исключений библиотеки umba.
+
+    Нужен, чтобы была возможность поймать любое «своё» исключение одной
+    catch-секцией, не задевая std::exception и его стандартных потомков:
+
+        try { ... }
+        catch (const ::umba::Exception &e) { ... }  // любое umba-исключение
+        catch (const std::exception   &e) { ... }  // остальные стандартные
+
+    Интерфейс не расширяет std::exception: ни полей, ни методов, ни
+    собственного what(). Все содержательные потомки (SystemException,
+    FileException и т.п.) сами добавляют нужные данные и переопределяют
+    what().
+
+    \note
+        - Деструктор не объявлен — виртуальный деструктор наследуется от
+          std::exception. Это избавляет от предупреждения C5267
+          (deprecated implicit copy ctor из-за user-declared dtor).
+        - Класс специально оставлен «пустым» — это только якорь иерархии.
+*/
+class Exception : public std::exception
+{
+    // Намеренно пустой: никакого интерфейса не добавляет.
+}; // class Exception
+
+//----------------------------------------------------------------------------
+
+
+
+
+//============================================================================
+//
 //  Системные коды ошибок и получение их текстового описания
 //
 //============================================================================
@@ -322,7 +360,7 @@ std::string removeTrailingPunctuation( std::string s, std::string *pPunkt=0 )
     первом вызове what() формируется системное описание ошибки и кэшируется
     во внутреннем буфере.
 
-    Совместим со std::exception.
+    Совместим со std::exception (через umba::Exception).
 
     \note
         - what() объявлена noexcept (требование override для std::exception).
@@ -338,7 +376,7 @@ std::string removeTrailingPunctuation( std::string s, std::string *pPunkt=0 )
           исключения (FileException и его наследники) от него НЕ наследуются,
           т.к. не всякая файловая ошибка является системной.
 */
-class SystemException : public std::exception
+class SystemException : public Exception
 {
 public:
 
@@ -455,9 +493,10 @@ protected:
 
     \note FileException НЕ является SystemException: не всякая файловая
           ошибка является системной. Если нужно ловить все ошибки с кодом ОС,
-          ловите SystemException отдельно.
+          ловите SystemException отдельно. Общий предок FileException и
+          SystemException — umba::Exception.
 */
-class FileException : public std::exception
+class FileException : public Exception
 {
 public:
 
@@ -890,6 +929,19 @@ void printException( Stream &stream, const ::umba::SystemException &e )
 }
 
 //----------------------------------------------------------------------------
+//! Шаблон вывода любого umba-исключения в поток вывода.
+//! Используется, когда конкретный тип исключения неизвестен, но точно
+//! относится к библиотеке umba.
+template< typename Stream >
+inline
+void printException( Stream &stream, const ::umba::Exception &e )
+{
+    exceptionHandlingConfigureStreamColoringError(stream);
+    exceptionHandlingConfigureStreamColoringErrorMessage(stream);
+    stream<<e.what()<<"\n";
+}
+
+//----------------------------------------------------------------------------
 //! Шаблон вывода std::exception в поток вывода
 template< typename Stream >
 inline
@@ -985,6 +1037,11 @@ void printUnknownException( Stream &stream )
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
     }                                                                                  \
+    catch( const ::umba::Exception &e )                                                \
+    {                                                                                  \
+        UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
+        errFlag = true;                                                                \
+    }                                                                                  \
     catch( const std::exception &e )                                                   \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
@@ -1016,6 +1073,11 @@ void printUnknownException( Stream &stream )
         errFlag = true;                                                                \
     }                                                                                  \
     catch( const ::umba::SystemException &e )                                          \
+    {                                                                                  \
+        UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
+        errFlag = true;                                                                \
+    }                                                                                  \
+    catch( const ::umba::Exception &e )                                                \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
