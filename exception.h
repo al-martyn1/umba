@@ -9,6 +9,32 @@
 #pragma once
 
 //-----------------------------------------------------------------------------
+// Платформенные настройки: нужно подтянуть windows.h (для FormatMessageA)
+// и/или cerrno/cstring (для strerror_r) до всего остального.
+//-----------------------------------------------------------------------------
+
+#if defined(_WIN32)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+    #include "utf8.h"          // umba::toUtf8 (UTF-16 -> UTF-8)
+    #include "internal/winstrerrorname.h"
+#else
+    #include <cerrno>
+    #include <cstring>
+#endif
+
+#include <cstdint>
+#include <string>
+#include <exception>
+#include <iostream>
+
+
+//-----------------------------------------------------------------------------
 
 /*!
     \ingroup UMBA_CORE
@@ -20,11 +46,6 @@
 #include "string_char_writers.h"
 //#include "i_char_writer.h"
 #include "umba.h"
-//
-#include <exception>
-#include <iostream>
-//#include "umba/simple_formatter.h"
-
 
 
 // https://habr.com/ru/post/163393/
@@ -70,49 +91,467 @@ namespace umba
 {
 
 
+//============================================================================
+//
+//  Системные коды ошибок и получение их текстового описания
+//
+//============================================================================
+
 //----------------------------------------------------------------------------
-//! Ошибка работы с файлом
-class FileException: virtual public std::exception
+//! Платформозависимый тип кода системной ошибки.
+//! Под Windows это DWORD (unsigned long, 32 бита),
+//! под *nix — int (то, что возвращает errno).
+//----------------------------------------------------------------------------
+#if defined(_WIN32)
+    using SystemErrorCode = DWORD;
+#else
+    using SystemErrorCode = int;
+#endif
+
+
+//----------------------------------------------------------------------------
+//! Получить код последней системной ошибки.
+//! Windows: GetLastError(); *nix: errno.
+//----------------------------------------------------------------------------
+inline
+SystemErrorCode getLastSystemError() noexcept
+{
+#if defined(_WIN32)
+    return ::GetLastError();
+#else
+    return static_cast<SystemErrorCode>(errno);
+#endif
+}
+
+
+//----------------------------------------------------------------------------
+//! Внутренние хелперы формирования текстового описания.
+//----------------------------------------------------------------------------
+namespace detail
 {
 
-public:
+#if defined(_WIN32)
 
-    //! Конструктор из текста сообщения и имени файла
-    UMBA_EXPLICIT
-    FileException( const std::string& msg, const std::string& fileName )
-    : m_message   (msg)
-    , m_fileName  (fileName)
+    //! Windows: FormatMessageW + конвертация UTF-16 -> UTF-8 через umba::toUtf8
+    //! с обрезкой хвостовых CR/LF/пробелов
+    inline
+    std::string systemErrorMessageImpl( SystemErrorCode code )
     {
-        if (!m_message.empty())
+        LPWSTR buffer = nullptr;
+
+        const DWORD len = ::FormatMessageW(
+              FORMAT_MESSAGE_ALLOCATE_BUFFER
+            | FORMAT_MESSAGE_FROM_SYSTEM
+            | FORMAT_MESSAGE_IGNORE_INSERTS
+            , nullptr
+            , code
+            , MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT)
+            , reinterpret_cast<LPWSTR>(&buffer)
+            , 0
+            , nullptr);
+
+        std::string result;
+
+        if (len && buffer)
         {
-            //char lastCh = m_message.back();
-            char lastCh = m_message[m_message.size()-1];//.back();
-            if (lastCh!='.' && lastCh!='!' && lastCh!='?')
-                m_message.append(".");
+            // Обрезаем хвостовые CR/LF/пробелы/табы
+            std::size_t n = len;
+            while (n > 0)
+            {
+                const wchar_t ch = buffer[n-1];
+                if (ch==L'\r' || ch==L'\n' || ch==L' ' || ch==L'\t')
+                    --n;
+                else
+                    break;
+            }
+
+            if (n > 0)
+            {
+                const std::wstring wide(buffer, n);
+                result = ::umba::toUtf8(wide);
+            }
+        }
+
+        if (buffer)
+            ::LocalFree(buffer);
+
+        return result;
+    }
+
+#else // POSIX
+
+    //! *nix: strerror_r с подстановкой fallback-а
+    inline
+    std::string systemErrorMessageImpl( SystemErrorCode code )
+    {
+        char buffer[512];
+        buffer[0] = 0;
+
+        #if defined(__GLIBC__) && defined(_GNU_SOURCE)
+            // GNU-вариант: возвращает char*
+            const char* msg = ::strerror_r(code, buffer, sizeof(buffer));
+            if (msg && *msg)
+                return std::string(msg);
+        #else
+            // XSI-вариант: возвращает int (0 — успех)
+            if (::strerror_r(code, buffer, sizeof(buffer)) == 0 && buffer[0])
+                return std::string(buffer);
+        #endif
+
+        // Fallback — не потокобезопасен, но лучше, чем ничего
+        const char* msg = std::strerror(code);
+        if (msg && *msg)
+            return std::string(msg);
+
+        return std::string();
+    }
+
+#endif
+
+} // namespace detail
+
+
+//----------------------------------------------------------------------------
+//! Получить текстовое описание системной ошибки по её коду.
+//! Если система не дала описания — вернёт пустую строку.
+//----------------------------------------------------------------------------
+inline
+std::string getSystemErrorMessage( SystemErrorCode code )
+{
+    return detail::systemErrorMessageImpl(code);
+}
+
+
+//----------------------------------------------------------------------------
+//! Сформировать итоговое сообщение вида
+//!   "<системное описание> (<числовой код>[/<символическое имя>])"
+//! Под Windows к числовому коду добавляется символическое имя (если известно),
+//! например: "Access is denied. (5/ERROR_ACCESS_DENIED)".
+//!
+//! \param code Код системной ошибки. Если равен 0 — возвращается пустая строка.
+//! \return    Готовая строка либо пустая строка (если code == 0).
+//----------------------------------------------------------------------------
+inline
+std::string formatSystemErrorMessage( SystemErrorCode code )
+{
+    if (code == 0)
+        return std::string();
+
+    std::string sys = getSystemErrorMessage(code);
+    if (sys.empty())
+        sys = "Unknown system error";
+
+    // Срезаем хвостовую пунктуацию — она будет восстановлена вызывающим кодом
+    if (!sys.empty())
+    {
+        const char lastCh = sys.back();
+        if (lastCh=='.' || lastCh=='!' || lastCh=='?')
+            sys.pop_back();
+    }
+
+    sys.append(" (");
+
+    sys += std::to_string(static_cast<long long>(code));
+
+#if defined(_WIN32)
+    auto codeStr = win32::getStrErrorNameStr(code);
+    if (!codeStr.empty())
+    {
+        sys.append(1, '/');
+        sys += codeStr;
+    }
+#endif
+
+    sys.append(1, ')');
+
+    return sys;
+}
+
+
+//----------------------------------------------------------------------------
+//! Хелпер: добавляет завершающую точку, если в конце нет . ! ?
+//----------------------------------------------------------------------------
+inline
+std::string ensureTrailingPunctuation( std::string s )
+{
+    if (!s.empty())
+    {
+        const char lastCh = s.back();
+        if (lastCh!='.' && lastCh!='!' && lastCh!='?')
+            s.push_back('.');
+    }
+    return s;
+}
+
+
+//----------------------------------------------------------------------------
+//! Хелпер: срезает завершающую точку/!/?, при необходимости сохраняя её
+//! в *pPunkt.
+//----------------------------------------------------------------------------
+inline
+std::string removeTrailingPunctuation( std::string s, std::string *pPunkt=0 )
+{
+    if (!s.empty())
+    {
+        const char lastCh = s.back();
+        if (lastCh=='.' || lastCh=='!' || lastCh=='?')
+        {
+            if (pPunkt)
+                pPunkt->assign(1, lastCh);
+            s.erase(s.size()-1, 1);
         }
     }
+    return s;
+}
+
+
+
+
+//============================================================================
+//
+//  SystemException — исключение, ассоциированное с системной ошибкой
+//
+//============================================================================
+
+//----------------------------------------------------------------------------
+/*!
+    \brief Базовое исключение для ошибок ОС.
+
+    Хранит код ошибки (GetLastError() под Windows, errno под *nix) и,
+    опционально, текстовое уточнение. Если текст не задан явно, то при
+    первом вызове what() формируется системное описание ошибки и кэшируется
+    во внутреннем буфере.
+
+    Совместим со std::exception.
+
+    \note
+        - what() объявлена noexcept (требование override для std::exception).
+          Любая операция внутри, способная бросить (аллокация, обращение
+          к ОС), обёрнута в try/catch: при неудаче возвращается статический
+          фолбэк, чтобы не вызвать std::terminate.
+        - Ленивое формирование сообщения не является потокобезопасным;
+          для исключений это приемлемо.
+        - Деструктор не объявляется явно — виртуальный деструктор
+          наследуется от std::exception. Это избавляет от предупреждения
+          C5267 (deprecated implicit copy ctor из-за user-declared dtor).
+        - SystemException — самостоятельная ветвь иерархии. Файловые
+          исключения (FileException и его наследники) от него НЕ наследуются,
+          т.к. не всякая файловая ошибка является системной.
+*/
+class SystemException : public std::exception
+{
+public:
+
+    using ErrorCodeType = SystemErrorCode;
+
+    //------------------------------------------------------------------------
+    //! По умолчанию берёт код из GetLastError()/errno.
+    SystemException() noexcept
+        : m_code(getLastSystemError())
+    {}
+
+    //------------------------------------------------------------------------
+    //! Из кода системной ошибки.
+    UMBA_EXPLICIT
+    SystemException( ErrorCodeType code ) noexcept
+        : m_code(code)
+    {}
+
+    //------------------------------------------------------------------------
+    //! Из готового текстового сообщения (без кода).
+    UMBA_EXPLICIT
+    SystemException( std::string msg )
+        : m_code(0)
+        , m_message(std::move(msg))
+    {}
+
+    //------------------------------------------------------------------------
+    //! Из кода и уточняющего текста.
+    //! what() вернёт текст как есть (уточнение пользователя), а код доступен
+    //! через code().
+    SystemException( ErrorCodeType code, std::string msg )
+        : m_code(code)
+        , m_message(std::move(msg))
+    {}
 
     //! Деструктор
-    //virtual ~FileException() throw () {}
+    //~SystemException() noexcept override = default;
 
-    //! Возврат указателя на текст ошибки
-    virtual
-    const char* what() const throw ()
+    //------------------------------------------------------------------------
+    //! Текст ошибки. Формируется лениво по коду при первом обращении.
+    //!
+    //! \note Метод обязан быть noexcept (нельзя ослабить спецификацию
+    //!       исключений родителя std::exception), поэтому тело защищено
+    //!       try/catch — при неудаче возвращается статический фолбэк,
+    //!       а не вылетает std::terminate.
+    const char* what() const noexcept override
     {
-       return m_message.c_str();
+        if (!m_message.empty())
+            return m_message.c_str();
+
+        try
+        {
+            if (m_code != 0)
+            {
+                m_message = ensureTrailingPunctuation(
+                    formatSystemErrorMessage(m_code));
+            }
+            else
+            {
+                m_message = "Unknown error";
+            }
+        }
+        catch (...)
+        {
+            // Формирование не удалось (например, bad_alloc).
+            // Возврат статического литерала не бросает и не нарушает noexcept.
+            return "Unknown error (failed to format message)";
+        }
+
+        return m_message.c_str();
     }
 
-    //! Возвращает имя файла
-    virtual
-    const char* getFileName() const throw()
+    //------------------------------------------------------------------------
+    //! Код системной ошибки (DWORD под Windows, int под *nix).
+    ErrorCodeType code() const noexcept
+    {
+        return m_code;
+    }
+
+    //------------------------------------------------------------------------
+    //! Установлен ли код ошибки.
+    bool hasCode() const noexcept
+    {
+        return m_code != 0;
+    }
+
+
+protected:
+
+    ErrorCodeType       m_code    = 0; //!< Код системной ошибки
+    mutable std::string m_message   ;  //!< Кэш текстового описания (mutable из-за what())
+
+}; // class SystemException
+
+//----------------------------------------------------------------------------
+
+
+
+
+//============================================================================
+//
+//  FileException — ошибка работы с файлом
+//
+//============================================================================
+
+//----------------------------------------------------------------------------
+/*!
+    \brief Ошибка при работе с файлом.
+
+    Хранит имя файла и, опционально, код системной ошибки. Код может быть
+    нулевым, если ошибка имеет пользовательскую природу (например, ошибка
+    разбора формата) — в этом случае what() вернёт только явно заданный
+    текст, без системного описания.
+
+    \note FileException НЕ является SystemException: не всякая файловая
+          ошибка является системной. Если нужно ловить все ошибки с кодом ОС,
+          ловите SystemException отдельно.
+*/
+class FileException : public std::exception
+{
+public:
+
+    using ErrorCodeType = SystemErrorCode;
+
+    //------------------------------------------------------------------------
+    //! По умолчанию: код из GetLastError()/errno, без имени файла.
+    FileException() noexcept = default;
+
+    //------------------------------------------------------------------------
+    //! Только имя файла — код берётся из текущей системной ошибки.
+    UMBA_EXPLICIT
+    FileException( std::string fileName )
+        : m_code(getLastSystemError())
+        , m_fileName(std::move(fileName))
+    {}
+
+    //------------------------------------------------------------------------
+    //! Код ошибки + имя файла.
+    FileException( ErrorCodeType code, std::string fileName )
+        : m_code(code)
+        , m_fileName(std::move(fileName))
+    {}
+
+    //------------------------------------------------------------------------
+    //! Готовый текст + имя файла (без системного кода).
+    FileException( std::string msg, std::string fileName )
+        : m_code(0)
+        , m_message(ensureTrailingPunctuation(std::move(msg)))
+        , m_fileName(std::move(fileName))
+    {}
+
+    //------------------------------------------------------------------------
+    //! Код + текст + имя файла.
+    FileException( ErrorCodeType code, std::string msg, std::string fileName )
+        : m_code(code)
+        , m_message(ensureTrailingPunctuation(std::move(msg)))
+        , m_fileName(std::move(fileName))
+    {}
+
+    //------------------------------------------------------------------------
+    //! Текст ошибки. Формируется лениво по коду, если код задан и текст
+    //! не передан явно.
+    const char* what() const noexcept override
+    {
+        if (!m_message.empty())
+            return m_message.c_str();
+
+        try
+        {
+            if (m_code != 0)
+            {
+                m_message = ensureTrailingPunctuation(
+                    formatSystemErrorMessage(m_code));
+            }
+            else
+            {
+                m_message = "Unknown file error";
+            }
+        }
+        catch (...)
+        {
+            return "Unknown file error (failed to format message)";
+        }
+
+        return m_message.c_str();
+    }
+
+    //------------------------------------------------------------------------
+    //! Имя файла.
+    const char* getFileName() const noexcept
     {
         return m_fileName.c_str();
     }
 
+    //------------------------------------------------------------------------
+    //! Код системной ошибки, если он есть. 0 = ошибка не системная.
+    ErrorCodeType code() const noexcept
+    {
+        return m_code;
+    }
+
+    //------------------------------------------------------------------------
+    //! Был ли установлен код ОС.
+    bool hasCode() const noexcept
+    {
+        return m_code != 0;
+    }
+
 protected:
 
-    std::string      m_message   ; //!< Текст сообщения
-    std::string      m_fileName  ; //!< Имя файла
+    ErrorCodeType       m_code    = 0; //!< 0 = нет системного кода
+    mutable std::string m_message   ;  //!< Кэш / пользовательский текст
+    std::string         m_fileName  ;  //!< Имя файла
 
 }; // class FileException
 
@@ -121,42 +560,59 @@ protected:
 
 
 
+//============================================================================
+//
+//  FileParsingException — ошибка разбора текстового файла
+//
+//============================================================================
+
 //----------------------------------------------------------------------------
-//! Ошибка разбора файла
-class FileParsingException: virtual public FileException
+//! Ошибка разбора файла.
+class FileParsingException : public FileException
 {
 
 public:
 
-    //! Конструктор из текста сообщения, имени файла, номера строки и позиции в строке. Нумерация с нуля
+    //! Конструктор из текста сообщения, имени файла, номера строки и позиции
+    //! в строке. Нумерация с нуля.
     UMBA_EXPLICIT
-    FileParsingException( const std::string& msg, const std::string& fileName, size_t lineNumber = (size_t)-1, size_t linePos = (size_t)-1 )
-    : FileException(msg, fileName)
-    , m_lineNumber(lineNumber)
-    , m_linePos(linePos)
+    FileParsingException( const std::string& msg
+                        , const std::string& fileName
+                        , size_t lineNumber = (size_t)-1
+                        , size_t linePos    = (size_t)-1 )
+        : FileException(msg, fileName)
+        , m_lineNumber(lineNumber)
+        , m_linePos(linePos)
     {}
 
-    //! Деструктор
-    //virtual ~FileParsingException() throw () {}
+    //! Конструктор из кода системной ошибки, текста, имени файла,
+    //! номера строки и позиции в строке.
+    FileParsingException( FileException::ErrorCodeType code
+                        , const std::string& msg
+                        , const std::string& fileName
+                        , size_t lineNumber = (size_t)-1
+                        , size_t linePos    = (size_t)-1 )
+        : FileException(code, msg, fileName)
+        , m_lineNumber(lineNumber)
+        , m_linePos(linePos)
+    {}
 
-    //! Возвращает номер строки
-    virtual
-    size_t getLineNumber() const throw()
+    //! Номер строки (нумерация с нуля, (size_t)-1 == «не задан»)
+    size_t getLineNumber() const noexcept
     {
         return m_lineNumber;
     }
 
-    //! Возвращает позицию в строке
-    virtual
-    size_t getLinePos() const throw()
+    //! Позиция в строке (нумерация с нуля, (size_t)-1 == «не задана»)
+    size_t getLinePos() const noexcept
     {
         return m_linePos;
     }
 
 protected:
 
-    size_t           m_lineNumber; //!< Номер строки
-    size_t           m_linePos;    //!< Позиция в строке
+    size_t m_lineNumber; //!< Номер строки
+    size_t m_linePos;    //!< Позиция в строке
 
 }; // class FileParsingException
 
@@ -165,85 +621,99 @@ protected:
 
 
 
+//============================================================================
+//
+//  FileBinaryParsingException — ошибка разбора двоичного файла
+//
+//============================================================================
 
 //----------------------------------------------------------------------------
-//! Ошибка разбора двоичного файла
-class FileBinaryParsingException: virtual public FileException
+//! Ошибка разбора двоичного файла.
+class FileBinaryParsingException : public FileException
 {
 
 public:
 
-    //! Конструктор из текста сообщения, имени файла, смещения в файле и строки с дампом части файла
+    //! Конструктор из текста, имени файла, смещения и готовой строки дампа.
     UMBA_EXPLICIT
-    FileBinaryParsingException( const std::string& msg, const std::string& fileName, size_t offset, const std::string &dump = std::string() )
-    : FileException(msg, fileName)
-    , m_offset(offset)
-    , m_dump(dump)
+    FileBinaryParsingException( const std::string& msg
+                              , const std::string& fileName
+                              , size_t offset
+                              , const std::string &dump = std::string() )
+        : FileException(msg, fileName)
+        , m_offset(offset)
+        , m_dump(dump)
     {}
 
-    //! Конструктор из текста сообщения, имени файла, смещения в файле и указателя на данные файла (и размер формируемого дампа)
+    //! Конструктор из текста, имени файла, смещения и указателя на данные
+    //! (для автоматического формирования дампа).
     UMBA_EXPLICIT
-    FileBinaryParsingException( const std::string& msg, const std::string& fileName, size_t offset, const uint8_t *pData, size_t numBytes )
-    : FileException(msg, fileName)
-    , m_offset(offset)
-    , m_dump(strGetDumpHelper(pData, numBytes))
+    FileBinaryParsingException( const std::string& msg
+                              , const std::string& fileName
+                              , size_t offset
+                              , const uint8_t *pData
+                              , size_t numBytes )
+        : FileException(msg, fileName)
+        , m_offset(offset)
+        , m_dump(strGetDumpHelper(pData, numBytes))
     {}
 
     //! Деструктор
-    //virtual ~FileBinaryParsingException() throw () {}
+    //~FileBinaryParsingException() noexcept override = default;
 
-    //! Возвращает смещение в файле
-    virtual
-    size_t getOffset() const throw()
+    //! Смещение от начала файла.
+    size_t getOffset() const noexcept
     {
         return m_offset;
     }
 
-    //! Возвращает указатель на строку дампа
-    virtual
-    const char* getDump() const throw()
+    //! Указатель на строку дампа.
+    const char* getDump() const noexcept
     {
         return m_dump.c_str();
     }
 
-    //! Возвращает true, если дамп задан
-    virtual
-    bool hasDump() const throw()
+    //! Задан ли дамп.
+    bool hasDump() const noexcept
     {
         return !m_dump.empty();
     }
 
 protected:
 
-    //! Хелпер формирования строки с дампом
-    std::string strGetDumpHelper( const uint8_t *pData, size_t numBytes ) const
+    //! Хелпер формирования строки с HEX-дампом.
+    static
+    std::string strGetDumpHelper( const uint8_t *pData, size_t numBytes )
     {
-        UMBA_USED(pData);
-        UMBA_USED(numBytes);
+        if (!pData || numBytes==0)
+            return std::string();
 
-        #ifdef UMBA_SIMPLE_FORMATTER_H
-        ::umba::StringCharWriter charWritter;
-        ::umba::SimpleFormatter  ss(&charWritter);
-        using namespace ::umba::omanip;
+        auto toHexDigit = [](unsigned v) -> char
+        {
+            if (v < 10)
+                return (char)(v + '0');
+            if (v < 16)
+                return (char)(v + 'A' - 10);
+            return '?'; // не должно происходить
+        };
 
-        ss.unsetf( ::umba::SimpleFormatter :: showbase );
+        std::string resStr;
+        resStr.reserve(numBytes*3);
 
-        for( size_t i = 0; i!=numBytes; ++i)
+        for (size_t i = 0; i != numBytes; ++i)
         {
             if (i)
-                ss<<" ";
-            ss<<hex<<pData[i];
+                resStr.push_back(' ');
+            const uint8_t b = pData[i];
+            resStr.push_back(toHexDigit((b >> 4) & 0xFu));
+            resStr.push_back(toHexDigit((b     ) & 0xFu));
         }
 
-        return charWritter.str();
-        #else
-        return std::string();
-        #endif
+        return resStr;
     }
 
-
-    size_t           m_offset; //!< Смещение от начала файла
-    std::string      m_dump;   //!< Дамп
+    size_t      m_offset = 0; //!< Смещение от начала файла
+    std::string m_dump      ; //!< Дамп
 
 }; // class FileBinaryParsingException
 
@@ -251,6 +721,12 @@ protected:
 
 
 
+
+//============================================================================
+//
+//  Настройка потока вывода
+//
+//============================================================================
 
 //----------------------------------------------------------------------------
 // Note - required to be
@@ -284,7 +760,7 @@ void exceptionHandlingConfigureStreamHex<::umba::SimpleFormatter>( ::umba::Simpl
 //! Шаблон настройки потока вывода для вывода информации с расцветкой
 template< typename StreamType >
 inline
-void exceptionHandlingConfigureStreamColoringError( StreamType & ss )
+void exceptionHandlingConfigureStreamColoringError( StreamType & /*ss*/ )
 {
 }
 
@@ -307,18 +783,19 @@ void exceptionHandlingConfigureStreamColoringError<::umba::SimpleFormatter>( ::u
 //! Шаблон для вывода префикса ошибки
 template< typename StreamType >
 inline
-void exceptionHandlingConfigureStreamColoringErrorMessage( StreamType & ss )
+void exceptionHandlingConfigureStreamColoringErrorMessage( StreamType & /*ss*/ )
 {
 }
 
 //----------------------------------------------------------------------------
 #ifdef UMBA_SIMPLE_FORMATTER_H
-//! Специализация шаблон для вывода префикса ошибки для потока umba::SimpleFormatter
+//! Специализация шаблона для вывода префикса ошибки для потока umba::SimpleFormatter
 template< >
 inline
 void exceptionHandlingConfigureStreamColoringErrorMessage<::umba::SimpleFormatter>( ::umba::SimpleFormatter & ss )
 {
     using namespace ::umba::omanip;
+    ss<<error;
     ss<<"error:";
     ss<<normal<<" ";
 }
@@ -329,33 +806,37 @@ void exceptionHandlingConfigureStreamColoringErrorMessage<::umba::SimpleFormatte
 
 
 
-
+//============================================================================
+//
+//  Печать исключений
+//
+//============================================================================
 
 //----------------------------------------------------------------------------
 //! Шаблон вывода FileParsingException в поток вывода
 template< typename Stream >
 inline
-void printException(Stream &stream, const ::umba::FileParsingException &e)
+void printException( Stream &stream, const ::umba::FileParsingException &e )
 {
     //using namespace ::umba::omanip;
 
     exceptionHandlingConfigureStreamColoringError(stream);
 
-    size_t lineNumber = e.getLineNumber();
-    size_t linePos    = e.getLinePos();
+    const size_t lineNumber = e.getLineNumber();
+    const size_t linePos    = e.getLinePos();
 
-    if (lineNumber==(size_t)-1)
+    if (lineNumber == (size_t)-1)
     {
         stream<<e.getFileName()<<": ";
         //<<e.what()<<"\n";
     }
-    else if (linePos==(size_t)-1)
+    else if (linePos == (size_t)-1)
     {
-        stream<<e.getFileName()<<":"<<(lineNumber+1)<<": "; //<<e.what()<<"\n";
+        stream<<e.getFileName()<<":"<<(lineNumber+1)<<": ";
     }
     else
     {
-        stream<<e.getFileName()<<":"<<(lineNumber+1)<<":"<<(linePos+1)<<": "; //<<e.what();
+        stream<<e.getFileName()<<":"<<(lineNumber+1)<<":"<<(linePos+1)<<": ";
     }
 
     exceptionHandlingConfigureStreamColoringErrorMessage(stream);
@@ -366,7 +847,7 @@ void printException(Stream &stream, const ::umba::FileParsingException &e)
 //! Шаблон вывода FileBinaryParsingException в поток вывода
 template< typename Stream >
 inline
-void printException(Stream &stream, const ::umba::FileBinaryParsingException &e)
+void printException( Stream &stream, const ::umba::FileBinaryParsingException &e )
 {
     //using namespace ::umba::omanip;
 
@@ -388,7 +869,7 @@ void printException(Stream &stream, const ::umba::FileBinaryParsingException &e)
 //! Шаблон вывода FileException в поток вывода
 template< typename Stream >
 inline
-void printException(Stream &stream, const ::umba::FileException &e)
+void printException( Stream &stream, const ::umba::FileException &e )
 {
     //using namespace ::umba::omanip;
     exceptionHandlingConfigureStreamColoringError(stream);
@@ -398,10 +879,21 @@ void printException(Stream &stream, const ::umba::FileException &e)
 }
 
 //----------------------------------------------------------------------------
+//! Шаблон вывода SystemException в поток вывода
+template< typename Stream >
+inline
+void printException( Stream &stream, const ::umba::SystemException &e )
+{
+    exceptionHandlingConfigureStreamColoringError(stream);
+    exceptionHandlingConfigureStreamColoringErrorMessage(stream);
+    stream<<e.what()<<"\n";
+}
+
+//----------------------------------------------------------------------------
 //! Шаблон вывода std::exception в поток вывода
 template< typename Stream >
 inline
-void printException(Stream &stream, const std::exception &e)
+void printException( Stream &stream, const std::exception &e )
 {
     //using namespace ::umba::omanip;
     exceptionHandlingConfigureStreamColoringError(stream);
@@ -413,7 +905,7 @@ void printException(Stream &stream, const std::exception &e)
 //! Шаблон вывода информации "неизвестная ошибка" в поток вывода
 template< typename Stream >
 inline
-void printUnknownException(Stream &stream)
+void printUnknownException( Stream &stream )
 {
     exceptionHandlingConfigureStreamColoringError(stream);
     exceptionHandlingConfigureStreamColoringErrorMessage(stream);
@@ -465,20 +957,30 @@ void printUnknownException(Stream &stream)
 
 
 //----------------------------------------------------------------------------
-//! Макрос ловли исключений с выводом в обычный поток
+//! Макрос ловли исключений с выводом в обычный поток.
+//!
+//! Порядок catch-блоков важен: производные — раньше базовых.
+//! FileException и SystemException — независимые ветви, порядок между
+//! ними не важен, но оба должны идти до std::exception.
+//----------------------------------------------------------------------------
 #define UMBA_EXCEPTION_CATCH_LOG_TO_STREAM( errFlag, stream )                          \
                                                                                        \
-    catch( const ::umba::FileBinaryParsingException &e )                                 \
+    catch( const ::umba::FileBinaryParsingException &e )                               \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
     }                                                                                  \
-    catch( const ::umba::FileParsingException &e )                                       \
+    catch( const ::umba::FileParsingException &e )                                     \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
     }                                                                                  \
-    catch( const ::umba::FileException &e )                                              \
+    catch( const ::umba::FileException &e )                                            \
+    {                                                                                  \
+        UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
+        errFlag = true;                                                                \
+    }                                                                                  \
+    catch( const ::umba::SystemException &e )                                          \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
@@ -498,17 +1000,22 @@ void printUnknownException(Stream &stream)
 //! Макрос ловли исключений с выводом в поток umba::SimpleFormatter
 #define UMBA_EXCEPTION_CATCH_LOG_TO_UMBA_STREAM( errFlag, stream )                     \
                                                                                        \
-    catch( const ::umba::FileBinaryParsingException &e )                                 \
+    catch( const ::umba::FileBinaryParsingException &e )                               \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
     }                                                                                  \
-    catch( const ::umba::FileParsingException &e )                                       \
+    catch( const ::umba::FileParsingException &e )                                     \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
     }                                                                                  \
-    catch( const ::umba::FileException &e )                                              \
+    catch( const ::umba::FileException &e )                                            \
+    {                                                                                  \
+        UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
+        errFlag = true;                                                                \
+    }                                                                                  \
+    catch( const ::umba::SystemException &e )                                          \
     {                                                                                  \
         UMBA_EXCEPTION_TO_STREAM_PRINTLN( stream, e );                                 \
         errFlag = true;                                                                \
@@ -521,13 +1028,8 @@ void printUnknownException(Stream &stream)
     catch( ... )                                                                       \
     {                                                                                  \
         UMBA_UNKNOWN_EXCEPTION_TO_STREAM_PRINTLN(stream);                              \
-        /*using namespace ::umba::omanip;*/                                              \
-        /*stream<<error;*/                                                             \
-        /*stream<<"Error: unknown error\n";*/                                          \
-        /*stream<<": error:"<<normal<<" "<<"Unknown error\n";*/                        \
         errFlag = true;                                                                \
     }
-
 
 
 
